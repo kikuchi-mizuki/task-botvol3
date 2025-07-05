@@ -104,6 +104,6 @@ def test():
     }
 
 if __name__ == "__main__":
-    # 開発用サーバーを起動
+    port = int(os.environ.get("PORT", 5000))
     logger.info("LINE Calendar Bot を起動しています...")
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    app.run(debug=True, host='0.0.0.0', port=port) 
