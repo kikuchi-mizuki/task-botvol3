@@ -140,4 +140,28 @@ class DBHelper:
         return c.fetchone() is not None
 
     def close(self):
-        self.conn.close() 
+        self.conn.close()
+
+    def save_oauth_state(self, state, line_user_id):
+        """OAuth stateとLINEユーザーIDを紐付けて保存"""
+        c = self.conn.cursor()
+        now = datetime.now().isoformat()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS oauth_states (
+                state TEXT PRIMARY KEY,
+                line_user_id TEXT,
+                created_at TEXT
+            )
+        ''')
+        c.execute('''
+            INSERT OR REPLACE INTO oauth_states (state, line_user_id, created_at)
+            VALUES (?, ?, ?)
+        ''', (state, line_user_id, now))
+        self.conn.commit()
+
+    def get_line_user_id_by_state(self, state):
+        """stateからLINEユーザーIDを取得"""
+        c = self.conn.cursor()
+        c.execute('SELECT line_user_id FROM oauth_states WHERE state = ?', (state,))
+        result = c.fetchone()
+        return result[0] if result else None 
