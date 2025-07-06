@@ -60,7 +60,7 @@ class AIService:
             return self._supplement_times(parsed, text)
             
         except Exception as e:
-            return {"error": f"AI処理エラー: {str(e)}"}
+            return {"error": "イベント情報を正しく認識できませんでした。\n\n・日時を打つと空き時間を返します\n・予定を打つとカレンダーに追加します\n\n例：\n『明日の午前9時から会議を追加して』\n『来週月曜日の14時から打ち合わせ』"}
     
     def _parse_ai_response(self, response):
         """AIの応答をパースします"""
