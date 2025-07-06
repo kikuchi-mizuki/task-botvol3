@@ -159,7 +159,8 @@ class LineBotHandler:
                 event_info['title'],
                 start_datetime,
                 end_datetime,
-                event_info.get('description', '')
+                event_info.get('description', ''),
+                line_user_id=line_user_id
             )
             logger.info(f"[DEBUG] add_event result: success={success}, message={message}, result={result}")
             
