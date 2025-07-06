@@ -109,6 +109,10 @@ class LineBotHandler:
             
             if not self.calendar_service:
                 return TextSendMessage(text="Google Calendarサービスが初期化されていません。認証ファイルを確認してください。")
+            
+            if not self.ai_service:
+                return TextSendMessage(text="AIサービスが初期化されていません。")
+            
             if not dates_info:
                 return TextSendMessage(text="日付を正しく認識できませんでした。\n\n例: 「明日7/7 15:00〜15:30の空き時間を教えて」")
             free_slots_by_date = {}
@@ -140,11 +144,19 @@ class LineBotHandler:
             if not self.calendar_service:
                 return TextSendMessage(text="Google Calendarサービスが初期化されていません。認証ファイルを確認してください。")
             
+            if not self.ai_service:
+                return TextSendMessage(text="AIサービスが初期化されていません。")
+            
             # AIを使ってイベント情報を抽出
             event_info = self.ai_service.extract_event_info(user_message)
             
             if 'error' in event_info:
-                return TextSendMessage(text="イベント情報を正しく認識できませんでした。\n\n例: 「明日の午前9時から会議を追加して」\n「来週月曜日の14時から打ち合わせ」")
+                # 日程のみの場合は空き時間確認として処理
+                dates_info = self.ai_service.extract_dates_and_times(user_message)
+                if 'error' not in dates_info and dates_info.get('dates'):
+                    return self._handle_availability_check(dates_info.get('dates', []), line_user_id)
+                
+                return TextSendMessage(text="・日時を打つと空き時間を返します\n・予定を打つとカレンダーに追加します\n\n例：\n・「明日の空き時間」\n・「7/15 15:00〜16:00の空き時間」\n・「明日の午前9時から会議を追加して」\n・「来週月曜日の14時から打ち合わせ」")
             
             # 日時をパース
             start_datetime = parser.parse(event_info['start_datetime'])

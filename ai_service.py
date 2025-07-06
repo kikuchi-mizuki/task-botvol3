@@ -36,6 +36,8 @@ class AIService:
                 "6. 1行に複数の予定が含まれる場合や、改行・スペース・句読点で区切られている場合も、すべての予定を抽出してください。\n"
                 "   例：'7/11 15:00〜16:00 18:00〜19:00' → 2件の予定として抽出\n"
                 "   例：'7/12 終日' → 1件の終日予定として抽出\n"
+                "7. 同じ日付の終日予定は1件だけ抽出してください。\n"
+                "8. 予定タイトル（description）も必ず抽出してください。\n"
                 "\n"
                 "出力形式:\n"
                 "{\n  \"task_type\": \"availability_check\" or \"add_event\",\n  \"dates\": [\n    {\n      \"date\": \"2024-01-15\",\n      \"time\": \"09:00\",\n      \"end_time\": \"10:00\",\n      \"description\": \"会議\"\n    }\n  ],\n  \"event_info\": {\n    \"title\": \"イベントタイトル\",\n    \"start_datetime\": \"2024-01-15T09:00:00\",\n    \"end_datetime\": \"2024-01-15T10:00:00\",\n    \"description\": \"説明（オプション）\"\n  }\n}\n"
@@ -75,19 +77,25 @@ class AIService:
             return {"error": f"JSONパースエラー: {str(e)}"}
     
     def _supplement_times(self, parsed, original_text):
-        """AIの出力でtimeやend_timeが空の場合に自然言語表現や状況に応じて自動補完する"""
+        """AIの出力でtimeやend_timeが空の場合に自然言語表現や状況に応じて自動補完する。titleが空の場合はdescriptionや日付・時刻から補完する。"""
         from datetime import datetime, timedelta
         import re
         jst = pytz.timezone('Asia/Tokyo')
         now = datetime.now(jst)
         if not parsed or 'dates' not in parsed:
             return parsed
+        # 終日予定の重複を防ぐ
+        allday_dates = set()
+        new_dates = []
         for d in parsed['dates']:
             phrase = d.get('description', '') or original_text
             # 終日
             if (not d.get('time') and not d.get('end_time')) or re.search(r'終日', phrase):
                 d['time'] = '00:00'
                 d['end_time'] = '23:59'
+                if d.get('date') in allday_dates:
+                    continue  # 同じ日付の終日予定は1件だけ
+                allday_dates.add(d.get('date'))
             # 18時以降
             elif re.search(r'(\d{1,2})時以降', phrase):
                 m = re.search(r'(\d{1,2})時以降', phrase)
@@ -110,6 +118,17 @@ class AIService:
             # end_timeが空
             elif d.get('time') and not d.get('end_time'):
                 d['end_time'] = '23:59'
+            # title補完
+            if not d.get('title') or d['title'] == '':
+                if d.get('description'):
+                    d['title'] = d['description']
+                else:
+                    # 日付・時刻から自動生成
+                    t = d.get('time', '')
+                    e = d.get('end_time', '')
+                    d['title'] = f"予定（{d.get('date', '')} {t}〜{e}）"
+            new_dates.append(d)
+        parsed['dates'] = new_dates
         return parsed
     
     def extract_event_info(self, text):
