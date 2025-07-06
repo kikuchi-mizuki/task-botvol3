@@ -24,25 +24,17 @@ class GoogleCalendarService:
         if os.path.exists('token.pickle'):
             with open('token.pickle', 'rb') as token:
                 self.creds = pickle.load(token)
-        
-        # 有効な認証情報がない場合は認証フローを実行
-        if not self.creds or not self.creds.valid:
-            if self.creds and self.creds.expired and self.creds.refresh_token:
-                self.creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    'credentials.json', self.SCOPES)
-                self.creds = flow.run_local_server(port=0)
-            
-            # 認証情報を保存
-            with open('token.pickle', 'wb') as token:
-                pickle.dump(self.creds, token)
-        
-        self.service = build('calendar', 'v3', credentials=self.creds)
+        # 有効な認証情報がない場合はWebフローで認証する（run_local_serverは呼ばない）
+        if self.creds and self.creds.expired and self.creds.refresh_token:
+            self.creds.refresh(Request())
+        if self.creds:
+            self.service = build('calendar', 'v3', credentials=self.creds)
+        else:
+            self.service = None  # 認証情報がなければserviceはNoneのまま
     
     def _get_user_credentials(self, line_user_id):
         """ユーザーの認証トークンをDBから取得"""
-        token_data = self.db_helper.get_user_token(line_user_id)
+        token_data = self.db_helper.get_google_token(line_user_id)
         if not token_data:
             return None
         
@@ -54,7 +46,7 @@ class GoogleCalendarService:
                 credentials.refresh(Request())
                 # 更新されたトークンをDBに保存
                 updated_token_data = pickle.dumps(credentials)
-                self.db_helper.save_user_token(line_user_id, updated_token_data)
+                self.db_helper.save_google_token(line_user_id, updated_token_data)
             
             return credentials
         except Exception as e:
@@ -72,10 +64,12 @@ class GoogleCalendarService:
     def check_availability(self, start_time, end_time):
         """指定された時間帯の空き時間を確認します"""
         try:
+            if not self.service:
+                return None, "Google認証が必要です。"
             # ISO文字列がタイムゾーン付きかどうかでZを付与しない
             def iso_no_z(dt):
                 s = dt.isoformat()
-                return s if s.endswith(('+09:00', '+00:00', '-00:00')) else s + 'Z'
+                return s if s.endswith(("+09:00", "+00:00", "-0")) else s + "Z"
             # 指定された時間帯のイベントを取得
             events_result = self.service.events().list(
                 calendarId=Config.GOOGLE_CALENDAR_ID,
@@ -161,6 +155,13 @@ class GoogleCalendarService:
             end_of_day = start_of_day + timedelta(days=1)
             
             try:
+                if not self.service:
+                    events_info.append({
+                        'date': date.strftime('%Y-%m-%d'),
+                        'events': [],
+                        'error': 'Google認証が必要です。'
+                    })
+                    continue
                 events_result = self.service.events().list(
                     calendarId=Config.GOOGLE_CALENDAR_ID,
                     timeMin=start_of_day.isoformat() + 'Z',
