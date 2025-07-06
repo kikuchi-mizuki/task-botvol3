@@ -237,6 +237,7 @@ class GoogleCalendarService:
                 singleEvents=True,
                 orderBy='startTime'
             ).execute()
+            logger.info(f"[DEBUG] Google Calendar APIレスポンス: {events_result}")
             
             events = events_result.get('items', [])
             
