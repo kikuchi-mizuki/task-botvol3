@@ -123,7 +123,7 @@ class GoogleCalendarService:
                         logger.warning(f"[WARN] add_event: eventがdict型でないためスキップ: {event}")
                         continue
                     conflicting_events.append({
-                        'title': event.get('summary', '予定なし'),
+                        'title': event.get('title', '予定なし'),
                         'start': event['start'].get('dateTime', event['start'].get('date')) if isinstance(event['start'], dict) else event['start'],
                         'end': event['end'].get('dateTime', event['end'].get('date')) if isinstance(event['end'], dict) else event['end']
                     })
