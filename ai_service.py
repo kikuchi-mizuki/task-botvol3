@@ -302,4 +302,31 @@ class AIService:
             else:
                 for slot in slots:
                     response += f"・{slot['start']}〜{slot['end']}\n"
+        return response
+    
+    def format_free_slots_response_by_frame(self, free_slots_by_frame):
+        """
+        free_slots_by_frame: [
+            {'date': 'YYYY-MM-DD', 'start_time': 'HH:MM', 'end_time': 'HH:MM', 'free_slots': [{'start': 'HH:MM', 'end': 'HH:MM'}, ...]},
+            ...
+        ]
+        各枠ごとに空き時間を返す
+        """
+        jst = pytz.timezone('Asia/Tokyo')
+        if not free_slots_by_frame:
+            return "✅空き時間はありませんでした。"
+        response = "✅以下が空き時間です！\n\n"
+        for frame in free_slots_by_frame:
+            date = frame['date']
+            start_time = frame['start_time']
+            end_time = frame['end_time']
+            slots = frame['free_slots']
+            dt = jst.localize(datetime.strptime(date, "%Y-%m-%d"))
+            weekday = "月火水木金土日"[dt.weekday()]
+            response += f"{dt.month}/{dt.day}（{weekday}） {start_time}〜{end_time}\n"
+            if not slots:
+                response += "・空き時間なし\n"
+            else:
+                for slot in slots:
+                    response += f"・{slot['start']}〜{slot['end']}\n"
         return response 

@@ -115,7 +115,7 @@ class LineBotHandler:
             
             if not dates_info:
                 return TextSendMessage(text="日付を正しく認識できませんでした。\n\n例: 「明日7/7 15:00〜15:30の空き時間を教えて」")
-            free_slots_by_date = {}
+            free_slots_by_frame = []
             for date_info in dates_info:
                 date_str = date_info.get('date')
                 start_time = date_info.get('time')
@@ -128,8 +128,13 @@ class LineBotHandler:
                     events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
                     # 枠内の空き時間を抽出
                     free_slots = self.calendar_service.find_free_slots_for_day(start_dt.date(), events, day_start=start_time, day_end=end_time, line_user_id=line_user_id)
-                    free_slots_by_date[date_str] = free_slots
-            response_text = self.ai_service.format_free_slots_response(free_slots_by_date)
+                    free_slots_by_frame.append({
+                        'date': date_str,
+                        'start_time': start_time,
+                        'end_time': end_time,
+                        'free_slots': free_slots
+                    })
+            response_text = self.ai_service.format_free_slots_response_by_frame(free_slots_by_frame)
             return TextSendMessage(text=response_text)
         except Exception as e:
             return TextSendMessage(text=f"空き時間確認でエラーが発生しました: {str(e)}")
