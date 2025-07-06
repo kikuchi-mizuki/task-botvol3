@@ -1,4 +1,6 @@
 import os
+import logging
+logging.basicConfig(level=logging.INFO)
 # Railway環境でcredentials.jsonを書き出す
 if "GOOGLE_CREDENTIALS_FILE" in os.environ:
     with open("credentials.json", "w") as f:
@@ -10,7 +12,6 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from line_bot_handler import LineBotHandler
 from config import Config
-import logging
 import json
 from datetime import datetime
 import pickle
@@ -21,7 +22,6 @@ from db import DBHelper
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # ログ設定
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
