@@ -120,7 +120,7 @@ class LineBotHandler:
                     # 枠内の予定を取得
                     events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
                     # 枠内の空き時間を抽出
-                    free_slots = self.calendar_service.find_free_slots_for_day(start_dt.date(), events, day_start=start_time, day_end=end_time)
+                    free_slots = self.calendar_service.find_free_slots_for_day(start_dt.date(), events, day_start=start_time, day_end=end_time, line_user_id=line_user_id)
                     free_slots_by_date[date_str] = free_slots
             response_text = self.ai_service.format_free_slots_response(free_slots_by_date)
             return TextSendMessage(text=response_text)
