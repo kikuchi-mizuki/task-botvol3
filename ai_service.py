@@ -128,6 +128,17 @@ class AIService:
                     e = d.get('end_time', '')
                     d['title'] = f"予定（{d.get('date', '')} {t}〜{e}）"
             new_dates.append(d)
+        # --- ここから全日枠の除外 ---
+        # 他に枠がある場合は00:00〜23:59の全日枠を除外
+        if len(new_dates) > 1:
+            filtered = []
+            for d in new_dates:
+                if d.get('time') == '00:00' and d.get('end_time') == '23:59':
+                    # 他に同じ日付で部分枠があれば除外
+                    if any((d2.get('date') == d.get('date') and (d2.get('time') != '00:00' or d2.get('end_time') != '23:59')) for d2 in new_dates):
+                        continue
+                filtered.append(d)
+            new_dates = filtered
         parsed['dates'] = new_dates
         return parsed
     
