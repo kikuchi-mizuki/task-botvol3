@@ -214,7 +214,8 @@ def onetime_login():
             # --- ここまで ---
             auth_url, state = flow.authorization_url(
                 access_type='offline',
-                include_granted_scopes='true'
+                include_granted_scopes='true',
+                prompt='consent'
             )
             # stateとline_user_idをDBに保存
             db_helper.save_oauth_state(state, line_user_id)
