@@ -1,10 +1,15 @@
+import os
+# Railway環境でcredentials.jsonを書き出す
+if "GOOGLE_CREDENTIALS_FILE" in os.environ:
+    with open("credentials.json", "w") as f:
+        f.write(os.environ["GOOGLE_CREDENTIALS_FILE"])
+
 from flask import Flask, request, abort
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from line_bot_handler import LineBotHandler
 from config import Config
 import logging
-import os
 
 # ログ設定
 logging.basicConfig(level=logging.INFO)
@@ -31,11 +36,6 @@ except Exception as e:
     raise
 
 print("DEBUG: OPENAI_API_KEY =", os.getenv("OPENAI_API_KEY"))
-
-# Railway環境でcredentials.jsonを書き出す
-if "GOOGLE_CREDENTIALS_FILE" in os.environ:
-    with open("credentials.json", "w") as f:
-        f.write(os.environ["GOOGLE_CREDENTIALS_FILE"])
 
 @app.route("/callback", methods=['POST'])
 def callback():
