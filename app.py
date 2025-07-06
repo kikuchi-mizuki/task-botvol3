@@ -18,6 +18,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from db import DBHelper
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # ログ設定
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
+
+# ProxyFixを追加
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 # 設定の検証
 try:
@@ -240,8 +244,9 @@ def onetime_login():
             return render_template_string(html)
 
 @app.route('/oauth2callback')
-def oauth2callback() -> Response:
+def oauth2callback():
     """Google OAuth認証コールバック"""
+    from flask import make_response
     try:
         # stateからline_user_idを取得
         state = request.args.get('state')
@@ -263,55 +268,15 @@ def oauth2callback() -> Response:
         # トークンをDBに保存
         token_data = pickle.dumps(credentials)
         db_helper.save_google_token(line_user_id, token_data)
-        
-        html = '''
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>認証完了</title>
-            <meta charset="utf-8">
-            <style>
-                body { font-family: Arial, sans-serif; max-width: 500px; margin: 50px auto; padding: 20px; text-align: center; }
-                .success { color: green; margin: 20px 0; }
-                .message { margin: 20px 0; }
-            </style>
-        </head>
-        <body>
-            <h1>認証完了</h1>
-            <div class="success">
-                ✅ Google Calendar認証が完了しました！
-            </div>
-            <div class="message">
-                LINE BotでGoogle Calendar機能をご利用いただけます。<br>
-                このページは閉じて、LINEに戻ってください。
-            </div>
-        </body>
-        </html>
-        '''
-        return make_response(render_template_string(html))
+        # ワンタイムコードを使用済みに
+        db_helper.mark_onetime_code_used(line_user_id)
+        # 認証完了画面
+        html = "<h2>Google認証が完了しました。LINEに戻って操作を続けてください。</h2>"
+        return make_response(html, 200)
     except Exception as e:
-        logging.error(f"OAuth2コールバックエラー: {e}")
-        html = '''
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>認証エラー</title>
-            <meta charset="utf-8">
-            <style>
-                body { font-family: Arial, sans-serif; max-width: 500px; margin: 50px auto; padding: 20px; }
-                .error { color: red; margin: 20px 0; }
-            </style>
-            </head>
-            <body>
-                <h1>認証エラー</h1>
-                <div class="error">
-                    認証処理中にエラーが発生しました。<br>
-                    しばらく時間をおいて再度お試しください。
-                </div>
-            </body>
-            </html>
-        '''
-        return make_response(render_template_string(html), 500)
+        import traceback
+        traceback.print_exc()
+        return make_response(f"OAuth2コールバックエラー: {e}", 400)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
