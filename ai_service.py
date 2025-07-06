@@ -41,9 +41,10 @@ class AIService:
                 "9. \"終日\"や\"00:00〜23:59\"の終日枠は、ユーザーが明示的に\"終日\"と書いた場合のみ抽出してください。\n"
                 "10. 1つの日付に複数の時間帯（枠）が指定されている場合は、必ずその枠ごとに抽出してください。\n"
                 "11. 同じ日に部分枠（例: 15:00〜16:00, 18:00〜19:00）がある場合は、その日付の終日枠（00:00〜23:59）は抽出しないでください。\n"
+                "12. 複数の日時・時間帯が入力される場合、全ての時間帯をリストにし、それぞれに対して開始時刻・終了時刻をISO形式（例: 2025-07-11T15:00:00+09:00）で出力してください。\n"
                 "\n"
-                "出力形式:\n"
-                "{\n  \"task_type\": \"availability_check\" or \"add_event\",\n  \"dates\": [\n    {\n      \"date\": \"2024-01-15\",\n      \"time\": \"09:00\",\n      \"end_time\": \"10:00\",\n      \"description\": \"会議\"\n    }\n  ],\n  \"event_info\": {\n    \"title\": \"イベントタイトル\",\n    \"start_datetime\": \"2024-01-15T09:00:00\",\n    \"end_datetime\": \"2024-01-15T10:00:00\",\n    \"description\": \"説明（オプション）\"\n  }\n}\n"
+                "【出力例】\n"
+                "{\n  \"task_type\": \"availability_check\",\n  \"dates\": [\n    {\n      \"date\": \"2025-07-11\",\n      \"time\": \"15:00\",\n      \"end_time\": \"16:00\",\n      \"start_datetime\": \"2025-07-11T15:00:00+09:00\",\n      \"end_datetime\": \"2025-07-11T16:00:00+09:00\",\n      \"description\": \"予定1\"\n    },\n    {\n      \"date\": \"2025-07-11\",\n      \"time\": \"18:00\",\n      \"end_time\": \"19:00\",\n      \"start_datetime\": \"2025-07-11T18:00:00+09:00\",\n      \"end_datetime\": \"2025-07-11T19:00:00+09:00\",\n      \"description\": \"予定2\"\n    }\n  ]\n}\n"
             )
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -80,14 +81,14 @@ class AIService:
             return {"error": f"JSONパースエラー: {str(e)}"}
     
     def _supplement_times(self, parsed, original_text):
-        """AIの出力でtimeやend_timeが空の場合に自然言語表現や状況に応じて自動補完する。titleが空の場合はdescriptionや日付・時刻から補完する。"""
+        """AIの出力でtimeやend_timeが空の場合に自然言語表現や状況に応じて自動補完する。titleが空の場合はdescriptionや日付・時刻から補完する。さらに正規表現で漏れた枠も補完する。"""
         from datetime import datetime, timedelta
         import re
         jst = pytz.timezone('Asia/Tokyo')
         now = datetime.now(jst)
         if not parsed or 'dates' not in parsed:
             return parsed
-        # 終日予定の重複を防ぐ
+        # --- 既存AI抽出の補完処理 ---
         allday_dates = set()
         new_dates = []
         for d in parsed['dates']:
@@ -126,22 +127,44 @@ class AIService:
                 if d.get('description'):
                     d['title'] = d['description']
                 else:
-                    # 日付・時刻から自動生成
                     t = d.get('time', '')
                     e = d.get('end_time', '')
                     d['title'] = f"予定（{d.get('date', '')} {t}〜{e}）"
             new_dates.append(d)
         # --- ここから全日枠の除外 ---
-        # 他に枠がある場合は00:00〜23:59の全日枠を除外
         if len(new_dates) > 1:
             filtered = []
             for d in new_dates:
                 if d.get('time') == '00:00' and d.get('end_time') == '23:59':
-                    # 他に同じ日付で部分枠があれば除外
                     if any((d2.get('date') == d.get('date') and (d2.get('time') != '00:00' or d2.get('end_time') != '23:59')) for d2 in new_dates):
                         continue
                 filtered.append(d)
             new_dates = filtered
+        # --- 正規表現で漏れた枠を補完 ---
+        pattern = r'(\d{1,2})/(\d{1,2})\s*(\d{1,2}):(\d{2})〜(\d{1,2}):(\d{2})'
+        matches = re.findall(pattern, original_text)
+        for m in matches:
+            month, day, sh, sm, eh, em = m
+            year = now.year
+            # 年を補完（未来日付優先）
+            try:
+                dt = datetime(year, int(month), int(day))
+                if dt < now:
+                    dt = datetime(year+1, int(month), int(day))
+            except Exception:
+                continue
+            date_str = dt.strftime('%Y-%m-%d')
+            start_time = f"{int(sh):02d}:{int(sm):02d}"
+            end_time = f"{int(eh):02d}:{int(em):02d}"
+            # 既存に同じ枠がなければ追加
+            if not any(d.get('date') == date_str and d.get('time') == start_time and d.get('end_time') == end_time for d in new_dates):
+                new_dates.append({
+                    'date': date_str,
+                    'time': start_time,
+                    'end_time': end_time,
+                    'title': f"予定（{date_str} {start_time}〜{end_time}）",
+                    'description': ''
+                })
         parsed['dates'] = new_dates
         return parsed
     
