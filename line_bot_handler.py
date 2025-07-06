@@ -126,12 +126,22 @@ class LineBotHandler:
                     end_dt = jst.localize(datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M"))
                     # 枠内の予定を取得
                     events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
-                    # 新しいfind_free_slots_for_dayを呼び出し
-                    free_slots = self.calendar_service.find_free_slots_for_day(start_dt, end_dt, events)
+                    # 8:00〜22:00の間で空き時間を返す
+                    day_start = "08:00"
+                    day_end = "22:00"
+                    # 枠の範囲と8:00〜22:00の重なり部分だけを対象にする
+                    slot_start = max(start_time, day_start)
+                    slot_end = min(end_time, day_end)
+                    slot_start_dt = jst.localize(datetime.strptime(f"{date_str} {slot_start}", "%Y-%m-%d %H:%M"))
+                    slot_end_dt = jst.localize(datetime.strptime(f"{date_str} {slot_end}", "%Y-%m-%d %H:%M"))
+                    if slot_start < slot_end:
+                        free_slots = self.calendar_service.find_free_slots_for_day(slot_start_dt, slot_end_dt, events)
+                    else:
+                        free_slots = []
                     free_slots_by_frame.append({
                         'date': date_str,
-                        'start_time': start_time,
-                        'end_time': end_time,
+                        'start_time': slot_start,
+                        'end_time': slot_end,
                         'free_slots': free_slots
                     })
             response_text = self.ai_service.format_free_slots_response_by_frame(free_slots_by_frame)
