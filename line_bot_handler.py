@@ -7,6 +7,7 @@ import pytz
 from calendar_service import GoogleCalendarService
 from ai_service import AIService
 from config import Config
+from db import DBHelper
 
 class LineBotHandler:
     def __init__(self):
@@ -16,6 +17,9 @@ class LineBotHandler:
         
         self.line_bot_api = LineBotApi(line_token)
         self.handler = WebhookHandler(line_secret)
+        
+        # DBヘルパーの初期化
+        self.db_helper = DBHelper()
         
         try:
             self.calendar_service = GoogleCalendarService()
@@ -31,9 +35,39 @@ class LineBotHandler:
             
         self.jst = pytz.timezone('Asia/Tokyo')
     
+    def _check_user_auth(self, line_user_id):
+        """ユーザーの認証状態をチェック"""
+        return self.db_helper.user_exists(line_user_id)
+    
+    def _send_auth_guide(self, line_user_id):
+        """認証案内メッセージを送信"""
+        # ワンタイムコードを生成
+        code = self.db_helper.generate_onetime_code(line_user_id)
+        
+        # 認証URLを生成（RailwayのURLを使用）
+        base_url = "https://task-bot-production.up.railway.app"  # 実際のRailway URLに変更
+        auth_url = f"{base_url}/onetime_login"
+        
+        message = f"""Google Calendar認証が必要です。
+
+🔐 ワンタイムコード: {code}
+
+📱 認証手順:
+1. 下のURLをクリックまたはコピー
+2. ワンタイムコードを入力
+3. Googleアカウントで認証
+
+🔗 認証URL:
+{auth_url}
+
+⚠️ コードの有効期限は10分です
+"""
+        return TextSendMessage(text=message)
+    
     def handle_message(self, event):
         """メッセージを処理します"""
         user_message = event.message.text
+        line_user_id = event.source.user_id
         
         try:
             # 環境変数が設定されていない場合の処理
@@ -49,23 +83,27 @@ class LineBotHandler:
             
             if 'error' in ai_result:
                 # AI処理に失敗した場合、直接イベント追加を試行
-                return self._handle_event_addition(user_message)
+                return self._handle_event_addition(user_message, line_user_id)
             
             # タスクタイプに基づいて処理
             task_type = ai_result.get('task_type', 'add_event')
             
             if task_type == 'availability_check':
                 print(f"[DEBUG] dates_info: {ai_result.get('dates', [])}")
-                return self._handle_availability_check(ai_result.get('dates', []))
+                return self._handle_availability_check(ai_result.get('dates', []), line_user_id)
             else:
-                return self._handle_event_addition(user_message)
+                return self._handle_event_addition(user_message, line_user_id)
             
         except Exception as e:
             return TextSendMessage(text=f"エラーが発生しました: {str(e)}")
     
-    def _handle_availability_check(self, dates_info):
+    def _handle_availability_check(self, dates_info, line_user_id):
         """空き時間確認を処理します"""
         try:
+            # ユーザーの認証状態をチェック
+            if not self._check_user_auth(line_user_id):
+                return self._send_auth_guide(line_user_id)
+            
             if not self.calendar_service:
                 return TextSendMessage(text="Google Calendarサービスが初期化されていません。認証ファイルを確認してください。")
             if not dates_info:
@@ -89,9 +127,13 @@ class LineBotHandler:
         except Exception as e:
             return TextSendMessage(text=f"空き時間確認でエラーが発生しました: {str(e)}")
     
-    def _handle_event_addition(self, user_message):
+    def _handle_event_addition(self, user_message, line_user_id):
         """イベント追加を処理します"""
         try:
+            # ユーザーの認証状態をチェック
+            if not self._check_user_auth(line_user_id):
+                return self._send_auth_guide(line_user_id)
+            
             if not self.calendar_service:
                 return TextSendMessage(text="Google Calendarサービスが初期化されていません。認証ファイルを確認してください。")
             

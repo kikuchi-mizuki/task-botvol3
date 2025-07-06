@@ -8,10 +8,12 @@ import pickle
 import pytz
 from config import Config
 from dateutil import parser
+from db import DBHelper
 
 class GoogleCalendarService:
     def __init__(self):
         self.SCOPES = ['https://www.googleapis.com/auth/calendar']
+        self.db_helper = DBHelper()
         self.creds = None
         self.service = None
         self._authenticate()
@@ -37,6 +39,35 @@ class GoogleCalendarService:
                 pickle.dump(self.creds, token)
         
         self.service = build('calendar', 'v3', credentials=self.creds)
+    
+    def _get_user_credentials(self, line_user_id):
+        """ユーザーの認証トークンをDBから取得"""
+        token_data = self.db_helper.get_user_token(line_user_id)
+        if not token_data:
+            return None
+        
+        try:
+            credentials = pickle.loads(token_data)
+            
+            # トークンの有効期限をチェック
+            if credentials and credentials.expired and credentials.refresh_token:
+                credentials.refresh(Request())
+                # 更新されたトークンをDBに保存
+                updated_token_data = pickle.dumps(credentials)
+                self.db_helper.save_user_token(line_user_id, updated_token_data)
+            
+            return credentials
+        except Exception as e:
+            print(f"トークンの読み込みエラー: {e}")
+            return None
+    
+    def _get_calendar_service(self, line_user_id):
+        """ユーザーごとのGoogle Calendarサービスを取得"""
+        credentials = self._get_user_credentials(line_user_id)
+        if not credentials:
+            raise Exception("ユーザーの認証トークンが見つかりません。認証を完了してください。")
+        
+        return build('calendar', 'v3', credentials=credentials)
     
     def check_availability(self, start_time, end_time):
         """指定された時間帯の空き時間を確認します"""
@@ -71,17 +102,27 @@ class GoogleCalendarService:
         except Exception as e:
             return None, f"エラーが発生しました: {str(e)}"
     
-    def add_event(self, title, start_time, end_time, description=""):
+    def add_event(self, title, start_time, end_time, description="", line_user_id=None):
         """カレンダーにイベントを追加します"""
         try:
-            print(f"[DEBUG] add_event: title={title}, start={start_time}, end={end_time}, desc={description}")
-            # まず空き時間をチェック
-            is_available, result = self.check_availability(start_time, end_time)
-            print(f"[DEBUG] check_availability: is_available={is_available}, result={result}")
-            if is_available is False:
-                # 既存の予定がある場合
-                print(f"[DEBUG] 既存の予定があるため追加しません: {result}")
-                return False, "✅既に予定が入っています", result
+            if not line_user_id:
+                return False, "ユーザーIDが必要です", None
+            
+            service = self._get_calendar_service(line_user_id)
+            
+            # 既存の予定をチェック
+            events = self.get_events_for_time_range(start_time, end_time, line_user_id)
+            if events:
+                conflicting_events = []
+                for event in events:
+                    conflicting_events.append({
+                        'title': event.get('summary', '予定なし'),
+                        'start': event['start'].get('dateTime', event['start'].get('date')),
+                        'end': event['end'].get('dateTime', event['end'].get('date'))
+                    })
+                print(f"[DEBUG] 既存の予定があるため追加しません: {conflicting_events}")
+                return False, "指定された時間に既存の予定があります", conflicting_events
+            
             # イベントを作成
             event = {
                 'summary': title,
@@ -97,8 +138,8 @@ class GoogleCalendarService:
             }
             print(f"[DEBUG] Google Calendar APIへイベント追加リクエスト: {event}")
             # イベントを追加
-            event = self.service.events().insert(
-                calendarId=Config.GOOGLE_CALENDAR_ID,
+            event = service.events().insert(
+                calendarId='primary',
                 body=event
             ).execute()
             print(f"[DEBUG] Google Calendar APIレスポンス: {event}")
@@ -159,13 +200,19 @@ class GoogleCalendarService:
         
         return events_info
     
-    def get_events_for_time_range(self, start_time, end_time):
+    def get_events_for_time_range(self, start_time, end_time, line_user_id):
         """指定された時間範囲のイベントを取得します"""
         try:
-            events_result = self.service.events().list(
-                calendarId=Config.GOOGLE_CALENDAR_ID,
-                timeMin=start_time.isoformat() + 'Z',
-                timeMax=end_time.isoformat() + 'Z',
+            service = self._get_calendar_service(line_user_id)
+            
+            # タイムゾーンをUTCに変換
+            utc_start = start_time.astimezone(pytz.UTC)
+            utc_end = end_time.astimezone(pytz.UTC)
+            
+            events_result = service.events().list(
+                calendarId='primary',
+                timeMin=utc_start.isoformat(),
+                timeMax=utc_end.isoformat(),
                 singleEvents=True,
                 orderBy='startTime'
             ).execute()
@@ -189,30 +236,58 @@ class GoogleCalendarService:
             return event_list
             
         except Exception as e:
+            print(f"イベント取得エラー: {e}")
             return []
     
-    def find_free_slots_for_day(self, date, events, day_start="08:00", day_end="22:00"):
-        """
-        指定日のイベントリストから空き時間帯を抽出します。
-        - date: datetime.date オブジェクト
-        - events: [{"start": iso, "end": iso, ...}]
-        - day_start, day_end: 営業時間帯（デフォルト8:00-22:00）
-        戻り値: [(start_time, end_time), ...] いずれもdatetime
-        """
-        jst = pytz.timezone('Asia/Tokyo')
-        day = date
-        start_of_day = jst.localize(datetime.combine(day, datetime.strptime(day_start, "%H:%M").time()))
-        end_of_day = jst.localize(datetime.combine(day, datetime.strptime(day_end, "%H:%M").time()))
-        # イベントを開始時刻でソート
-        sorted_events = sorted(events, key=lambda e: e['start'])
-        free_slots = []
-        current = start_of_day
-        for event in sorted_events:
-            event_start = parser.parse(event['start']).astimezone(jst)
-            event_end = parser.parse(event['end']).astimezone(jst)
-            if current < event_start:
-                free_slots.append((current, event_start))
-            current = max(current, event_end)
-        if current < end_of_day:
-            free_slots.append((current, end_of_day))
-        return free_slots 
+    def find_free_slots_for_day(self, date, events, day_start="09:00", day_end="18:00", line_user_id=None):
+        """指定日の空き時間を検索"""
+        try:
+            # 既存のイベントを時間範囲でフィルタリング
+            day_start_dt = datetime.combine(date, datetime.strptime(day_start, "%H:%M").time())
+            day_end_dt = datetime.combine(date, datetime.strptime(day_end, "%H:%M").time())
+            
+            # タイムゾーンを設定
+            jst = pytz.timezone('Asia/Tokyo')
+            day_start_dt = jst.localize(day_start_dt)
+            day_end_dt = jst.localize(day_end_dt)
+            
+            # イベントを取得
+            if line_user_id:
+                events = self.get_events_for_time_range(day_start_dt, day_end_dt, line_user_id)
+            else:
+                events = []
+            
+            # 既存の予定を時間順にソート
+            busy_times = []
+            for event in events:
+                start = event['start'].get('dateTime', event['start'].get('date'))
+                end = event['end'].get('dateTime', event['end'].get('date'))
+                
+                if 'T' in start:  # dateTime形式
+                    start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
+                    end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
+                    busy_times.append((start_dt, end_dt))
+            
+            # 空き時間を計算
+            free_slots = []
+            current_time = day_start_dt
+            
+            for busy_start, busy_end in sorted(busy_times):
+                if current_time < busy_start:
+                    free_slots.append({
+                        'start': current_time.strftime('%H:%M'),
+                        'end': busy_start.strftime('%H:%M')
+                    })
+                current_time = max(current_time, busy_end)
+            
+            # 最後の空き時間
+            if current_time < day_end_dt:
+                free_slots.append({
+                    'start': current_time.strftime('%H:%M'),
+                    'end': day_end_dt.strftime('%H:%M')
+                })
+            
+            return free_slots
+        except Exception as e:
+            print(f"空き時間検索エラー: {e}")
+            return [] 
