@@ -261,50 +261,47 @@ class GoogleCalendarService:
             logging.error(f"イベント取得エラー: {e}")
             return []
     
-    def find_free_slots_for_day(self, date, events, day_start="09:00", day_end="18:00", line_user_id=None):
-        """指定日の枠内で既存予定を除いた空き時間帯リストを返す"""
+    def find_free_slots_for_day(self, start_dt, end_dt, events):
+        """指定枠(start_dt, end_dt)内で既存予定を除いた空き時間帯リストを返す"""
         try:
-            # 枠の開始・終了時刻
-            day_start_dt = datetime.combine(date, datetime.strptime(day_start, "%H:%M").time())
-            day_end_dt = datetime.combine(date, datetime.strptime(day_end, "%H:%M").time())
             jst = pytz.timezone('Asia/Tokyo')
-            day_start_dt = jst.localize(day_start_dt)
-            day_end_dt = jst.localize(day_end_dt)
+            if start_dt.tzinfo is None:
+                start_dt = jst.localize(start_dt)
+            if end_dt.tzinfo is None:
+                end_dt = jst.localize(end_dt)
             # eventsがNoneや空の場合は必ず再取得
-            if (events is None or len(events) == 0) and line_user_id:
-                events = self.get_events_for_time_range(day_start_dt, day_end_dt, line_user_id)
-                logger.info(f"[DEBUG] find_free_slots_for_day: 再取得したevents = {events}")
+            if events is None or len(events) == 0:
+                return [{
+                    'start': start_dt.strftime('%H:%M'),
+                    'end': end_dt.strftime('%H:%M')
+                }]
             # 既存予定を時間順にbusy_timesへ
             busy_times = []
             for event in events:
                 start = event['start'] if isinstance(event['start'], str) else event['start'].get('dateTime', event['start'].get('date'))
                 end = event['end'] if isinstance(event['end'], str) else event['end'].get('dateTime', event['end'].get('date'))
                 if 'T' in start:  # dateTime形式
-                    start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
-                    end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
+                    start_ev = datetime.fromisoformat(start.replace('Z', '+00:00'))
+                    end_ev = datetime.fromisoformat(end.replace('Z', '+00:00'))
                     # 枠外の予定は除外
-                    if end_dt <= day_start_dt or start_dt >= day_end_dt:
+                    if end_ev <= start_dt or start_ev >= end_dt:
                         continue
-                    # 枠内に収める
-                    busy_times.append((max(start_dt, day_start_dt), min(end_dt, day_end_dt)))
+                    busy_times.append((max(start_ev, start_dt), min(end_ev, end_dt)))
                 else:  # date型（終日予定）
-                    # Google Calendar APIのdate型は「その日0:00〜翌日0:00」
                     allday_start = jst.localize(datetime.combine(datetime.strptime(start, "%Y-%m-%d"), datetime.min.time()))
                     allday_end = allday_start + timedelta(days=1)
-                    # 枠外の予定は除外
-                    if allday_end <= day_start_dt or allday_start >= day_end_dt:
+                    if allday_end <= start_dt or allday_start >= end_dt:
                         continue
-                    busy_times.append((max(allday_start, day_start_dt), min(allday_end, day_end_dt)))
+                    busy_times.append((max(allday_start, start_dt), min(allday_end, end_dt)))
             # 空き時間を計算
             free_slots = []
             if not busy_times:
-                # 予定がなければ枠全体を空き時間として返す
                 free_slots.append({
-                    'start': day_start_dt.strftime('%H:%M'),
-                    'end': day_end_dt.strftime('%H:%M')
+                    'start': start_dt.strftime('%H:%M'),
+                    'end': end_dt.strftime('%H:%M')
                 })
                 return free_slots
-            current_time = day_start_dt
+            current_time = start_dt
             for busy_start, busy_end in sorted(busy_times):
                 if current_time < busy_start:
                     free_slots.append({
@@ -312,10 +309,10 @@ class GoogleCalendarService:
                         'end': busy_start.strftime('%H:%M')
                     })
                 current_time = max(current_time, busy_end)
-            if current_time < day_end_dt:
+            if current_time < end_dt:
                 free_slots.append({
                     'start': current_time.strftime('%H:%M'),
-                    'end': day_end_dt.strftime('%H:%M')
+                    'end': end_dt.strftime('%H:%M')
                 })
             return free_slots
         except Exception as e:
