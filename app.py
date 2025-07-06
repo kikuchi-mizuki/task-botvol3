@@ -201,20 +201,14 @@ def onetime_login():
             # Google OAuth認証フローを開始
             SCOPES = ['https://www.googleapis.com/auth/calendar']
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-            
-            # 認証URLを生成（リダイレクトURIを設定）
             flow.redirect_uri = request.url_root.rstrip('/') + '/oauth2callback'
-            auth_url, _ = flow.authorization_url(
+            auth_url, state = flow.authorization_url(
                 access_type='offline',
                 include_granted_scopes='true'
             )
-            
-            # セッションにLINEユーザーIDとフロー情報を保存
-            session['line_user_id'] = line_user_id
-            session['flow'] = pickle.dumps(flow)
-            
+            # stateとline_user_idをDBに保存
+            db_helper.save_oauth_state(state, line_user_id)
             return redirect(auth_url)
-            
         except Exception as e:
             logging.error(f"Google OAuth認証エラー: {e}")
             html = '''
@@ -243,26 +237,21 @@ def onetime_login():
 def oauth2callback():
     """Google OAuth認証コールバック"""
     try:
-        # セッションから情報を取得
-        line_user_id = session.get('line_user_id')
-        flow_data = session.get('flow')
-        
-        if not line_user_id or not flow_data:
+        # stateからline_user_idを取得
+        state = request.args.get('state')
+        line_user_id = db_helper.get_line_user_id_by_state(state)
+        if not line_user_id:
             return "認証セッションが無効です", 400
-        
-        flow = pickle.loads(flow_data)
-        
+        # 新たにflowを生成
+        SCOPES = ['https://www.googleapis.com/auth/calendar']
+        flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+        flow.redirect_uri = request.url_root.rstrip('/') + '/oauth2callback'
         # 認証コードを取得してトークンを交換
         flow.fetch_token(authorization_response=request.url)
         credentials = flow.credentials
-        
         # トークンをDBに保存
         token_data = pickle.dumps(credentials)
         db_helper.save_user_token(line_user_id, token_data)
-        
-        # セッションをクリア
-        session.pop('line_user_id', None)
-        session.pop('flow', None)
         
         html = '''
         <!DOCTYPE html>
@@ -289,7 +278,6 @@ def oauth2callback():
         </html>
         '''
         return render_template_string(html)
-        
     except Exception as e:
         logging.error(f"OAuth2コールバックエラー: {e}")
         html = '''
