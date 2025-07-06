@@ -4,7 +4,7 @@ if "GOOGLE_CREDENTIALS_FILE" in os.environ:
     with open("credentials.json", "w") as f:
         f.write(os.environ["GOOGLE_CREDENTIALS_FILE"])
 
-from flask import Flask, request, abort, render_template_string, redirect, url_for, session
+from flask import Flask, request, abort, render_template_string, redirect, url_for, session, Response, make_response
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
@@ -202,10 +202,11 @@ def onetime_login():
             SCOPES = ['https://www.googleapis.com/auth/calendar']
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
             # --- redirect_uri自動判定 ---
-            if 'railway.app' in request.url_root:
-                flow.redirect_uri = 'https://task-bot-production.up.railway.app/oauth2callback'
-            else:
-                flow.redirect_uri = request.url_root.rstrip('/') + '/oauth2callback'
+            # Railway本番・ngrok・ローカル全てでhttpsを強制
+            base_url = request.url_root.rstrip('/')
+            if base_url.startswith('http://'):
+                base_url = 'https://' + base_url[len('http://'):]
+            flow.redirect_uri = base_url + '/oauth2callback'
             # --- ここまで ---
             auth_url, state = flow.authorization_url(
                 access_type='offline',
@@ -239,22 +240,22 @@ def onetime_login():
             return render_template_string(html)
 
 @app.route('/oauth2callback')
-def oauth2callback():
+def oauth2callback() -> Response:
     """Google OAuth認証コールバック"""
     try:
         # stateからline_user_idを取得
         state = request.args.get('state')
         line_user_id = db_helper.get_line_user_id_by_state(state)
         if not line_user_id:
-            return "認証セッションが無効です", 400
+            return make_response("認証セッションが無効です", 400)
         # 新たにflowを生成
         SCOPES = ['https://www.googleapis.com/auth/calendar']
         flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
         # --- redirect_uri自動判定 ---
-        if 'railway.app' in request.url_root:
-            flow.redirect_uri = 'https://task-bot-production.up.railway.app/oauth2callback'
-        else:
-            flow.redirect_uri = request.url_root.rstrip('/') + '/oauth2callback'
+        base_url = request.url_root.rstrip('/')
+        if base_url.startswith('http://'):
+            base_url = 'https://' + base_url[len('http://'):]
+        flow.redirect_uri = base_url + '/oauth2callback'
         # --- ここまで ---
         # 認証コードを取得してトークンを交換
         flow.fetch_token(authorization_response=request.url)
@@ -287,7 +288,7 @@ def oauth2callback():
         </body>
         </html>
         '''
-        return render_template_string(html)
+        return make_response(render_template_string(html))
     except Exception as e:
         logging.error(f"OAuth2コールバックエラー: {e}")
         html = '''
@@ -310,7 +311,7 @@ def oauth2callback():
             </body>
             </html>
         '''
-        return render_template_string(html)
+        return make_response(render_template_string(html), 500)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
