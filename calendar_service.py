@@ -12,6 +12,12 @@ from db import DBHelper
 import logging
 
 logger = logging.getLogger("calendar_service")
+logger.setLevel(logging.INFO)
+if not logger.hasHandlers():
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 class GoogleCalendarService:
     def __init__(self):
@@ -117,7 +123,7 @@ class GoogleCalendarService:
                         'start': event['start'].get('dateTime', event['start'].get('date')),
                         'end': event['end'].get('dateTime', event['end'].get('date'))
                     })
-                print(f"[DEBUG] 既存の予定があるため追加しません: {conflicting_events}")
+                logger.info(f"[DEBUG] 既存の予定があるため追加しません: {conflicting_events}")
                 return False, "指定された時間に既存の予定があります", conflicting_events
             
             # イベントを作成
@@ -133,20 +139,20 @@ class GoogleCalendarService:
                     'timeZone': 'Asia/Tokyo',
                 },
             }
-            print(f"[DEBUG] Google Calendar APIへイベント追加リクエスト: {event}")
+            logger.info(f"[DEBUG] Google Calendar APIへイベント追加リクエスト: {event}")
             # イベントを追加
             event = service.events().insert(
                 calendarId='primary',
                 body=event
             ).execute()
-            print(f"[DEBUG] Google Calendar APIレスポンス: {event}")
+            logger.info(f"[DEBUG] Google Calendar APIレスポンス: {event}")
             return True, "✅予定を追加しました", {
                 'title': title,
                 'start': start_time.isoformat(),
                 'end': end_time.isoformat()
             }
         except Exception as e:
-            print(f"[ERROR] add_eventで例外発生: {e}")
+            logger.error(f"[ERROR] add_eventで例外発生: {e}")
             return False, f"エラーが発生しました: {str(e)}", None
     
     def get_events_for_dates(self, dates):
@@ -286,5 +292,5 @@ class GoogleCalendarService:
                 })
             return free_slots
         except Exception as e:
-            print(f"空き時間検索エラー: {e}")
+            logger.error(f"空き時間検索エラー: {e}")
             return [] 
