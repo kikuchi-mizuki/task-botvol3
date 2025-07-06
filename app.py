@@ -201,7 +201,12 @@ def onetime_login():
             # Google OAuth認証フローを開始
             SCOPES = ['https://www.googleapis.com/auth/calendar']
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-            flow.redirect_uri = request.url_root.rstrip('/') + '/oauth2callback'
+            # --- redirect_uri自動判定 ---
+            if 'railway.app' in request.url_root:
+                flow.redirect_uri = 'https://task-bot-production.up.railway.app/oauth2callback'
+            else:
+                flow.redirect_uri = request.url_root.rstrip('/') + '/oauth2callback'
+            # --- ここまで ---
             auth_url, state = flow.authorization_url(
                 access_type='offline',
                 include_granted_scopes='true'
@@ -245,13 +250,18 @@ def oauth2callback():
         # 新たにflowを生成
         SCOPES = ['https://www.googleapis.com/auth/calendar']
         flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-        flow.redirect_uri = request.url_root.rstrip('/') + '/oauth2callback'
+        # --- redirect_uri自動判定 ---
+        if 'railway.app' in request.url_root:
+            flow.redirect_uri = 'https://task-bot-production.up.railway.app/oauth2callback'
+        else:
+            flow.redirect_uri = request.url_root.rstrip('/') + '/oauth2callback'
+        # --- ここまで ---
         # 認証コードを取得してトークンを交換
         flow.fetch_token(authorization_response=request.url)
         credentials = flow.credentials
         # トークンをDBに保存
         token_data = pickle.dumps(credentials)
-        db_helper.save_user_token(line_user_id, token_data)
+        db_helper.save_google_token(line_user_id, token_data)
         
         html = '''
         <!DOCTYPE html>
