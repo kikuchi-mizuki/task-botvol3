@@ -226,7 +226,7 @@ class AIService:
     
     def format_free_slots_response(self, free_slots_by_date):
         """
-        free_slots_by_date: { 'YYYY-MM-DD': [(start_datetime, end_datetime), ...], ... }
+        free_slots_by_date: { 'YYYY-MM-DD': [{'start': '10:00', 'end': '11:00'}, ...], ... }
         指定フォーマットで空き時間を返す
         """
         jst = pytz.timezone('Asia/Tokyo')
@@ -237,6 +237,9 @@ class AIService:
             dt = jst.localize(datetime.strptime(date, "%Y-%m-%d"))
             weekday = "月火水木金土日"[dt.weekday()]
             response += f"{dt.month}/{dt.day}（{weekday}）\n"
-            # どんな場合も1行だけ08:00〜18:00を出す
-            response += "・08:00〜18:00\n"
+            if not slots:
+                response += "・空き時間なし\n"
+            else:
+                for slot in slots:
+                    response += f"・{slot['start']}〜{slot['end']}\n"
         return response 
