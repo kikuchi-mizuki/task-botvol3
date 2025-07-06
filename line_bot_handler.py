@@ -118,7 +118,7 @@ class LineBotHandler:
                     start_dt = jst.localize(datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M"))
                     end_dt = jst.localize(datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M"))
                     # 枠内の予定を取得
-                    events = self.calendar_service.get_events_for_time_range(start_dt, end_dt)
+                    events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
                     # 枠内の空き時間を抽出
                     free_slots = self.calendar_service.find_free_slots_for_day(start_dt.date(), events, day_start=start_time, day_end=end_time)
                     free_slots_by_date[date_str] = free_slots
