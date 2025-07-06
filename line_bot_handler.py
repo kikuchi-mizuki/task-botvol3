@@ -8,6 +8,9 @@ from calendar_service import GoogleCalendarService
 from ai_service import AIService
 from config import Config
 from db import DBHelper
+import logging
+
+logger = logging.getLogger("line_bot_handler")
 
 class LineBotHandler:
     def __init__(self):
@@ -158,6 +161,7 @@ class LineBotHandler:
                 end_datetime,
                 event_info.get('description', '')
             )
+            logger.info(f"[DEBUG] add_event result: success={success}, message={message}, result={result}")
             
             # AIを使ってレスポンスをフォーマット
             response_text = self.ai_service.format_event_confirmation(success, message, result)
