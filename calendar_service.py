@@ -229,6 +229,7 @@ class GoogleCalendarService:
             utc_start = start_time.astimezone(pytz.UTC)
             utc_end = end_time.astimezone(pytz.UTC)
             
+            logger.info(f"[DEBUG] Google Calendar APIリクエスト: calendarId={Config.GOOGLE_CALENDAR_ID}, timeMin={utc_start.isoformat()}, timeMax={utc_end.isoformat()}")
             events_result = service.events().list(
                 calendarId=Config.GOOGLE_CALENDAR_ID,  # 'primary'（各ユーザーのメインカレンダー）
                 timeMin=utc_start.isoformat(),
