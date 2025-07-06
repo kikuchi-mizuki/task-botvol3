@@ -133,5 +133,11 @@ class DBHelper:
         c.execute('DELETE FROM onetimes WHERE expires_at < ?', (now,))
         self.conn.commit()
 
+    def user_exists(self, line_user_id):
+        """ユーザーが認証済みかどうかを判定"""
+        c = self.conn.cursor()
+        c.execute('SELECT 1 FROM users WHERE line_user_id = ?', (line_user_id,))
+        return c.fetchone() is not None
+
     def close(self):
         self.conn.close() 
