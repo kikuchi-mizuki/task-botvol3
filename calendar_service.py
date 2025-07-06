@@ -119,13 +119,17 @@ class GoogleCalendarService:
             if events and len(events) > 0:
                 conflicting_events = []
                 for event in events:
+                    if not isinstance(event, dict):
+                        logger.warning(f"[WARN] add_event: eventがdict型でないためスキップ: {event}")
+                        continue
                     conflicting_events.append({
                         'title': event.get('summary', '予定なし'),
-                        'start': event['start'].get('dateTime', event['start'].get('date')),
-                        'end': event['end'].get('dateTime', event['end'].get('date'))
+                        'start': event['start'].get('dateTime', event['start'].get('date')) if isinstance(event['start'], dict) else event['start'],
+                        'end': event['end'].get('dateTime', event['end'].get('date')) if isinstance(event['end'], dict) else event['end']
                     })
                 logger.info(f"[DEBUG] 既存の予定があるため追加しません: {conflicting_events}")
-                return False, "指定された時間に既存の予定があります", conflicting_events
+                if conflicting_events:
+                    return False, "指定された時間に既存の予定があります", conflicting_events
             
             # イベントを作成
             event = {
@@ -214,8 +218,13 @@ class GoogleCalendarService:
     def get_events_for_time_range(self, start_time, end_time, line_user_id):
         """指定された時間範囲のイベントを取得します"""
         try:
+            jst = pytz.timezone('Asia/Tokyo')
+            # タイムゾーンなしならJSTを付与
+            if start_time.tzinfo is None:
+                start_time = jst.localize(start_time)
+            if end_time.tzinfo is None:
+                end_time = jst.localize(end_time)
             service = self._get_calendar_service(line_user_id)
-            
             # タイムゾーンをUTCに変換
             utc_start = start_time.astimezone(pytz.UTC)
             utc_end = end_time.astimezone(pytz.UTC)
@@ -276,6 +285,14 @@ class GoogleCalendarService:
                         continue
                     # 枠内に収める
                     busy_times.append((max(start_dt, day_start_dt), min(end_dt, day_end_dt)))
+                else:  # date型（終日予定）
+                    # Google Calendar APIのdate型は「その日0:00〜翌日0:00」
+                    allday_start = jst.localize(datetime.combine(datetime.strptime(start, "%Y-%m-%d"), datetime.min.time()))
+                    allday_end = allday_start + timedelta(days=1)
+                    # 枠外の予定は除外
+                    if allday_end <= day_start_dt or allday_start >= day_end_dt:
+                        continue
+                    busy_times.append((max(allday_start, day_start_dt), min(allday_end, day_end_dt)))
             # 空き時間を計算
             free_slots = []
             current_time = day_start_dt
