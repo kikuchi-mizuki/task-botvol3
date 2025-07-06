@@ -142,7 +142,7 @@ class GoogleCalendarService:
             logger.info(f"[DEBUG] Google Calendar APIへイベント追加リクエスト: {event}")
             # イベントを追加
             event = service.events().insert(
-                calendarId='primary',
+                calendarId=Config.GOOGLE_CALENDAR_ID,
                 body=event
             ).execute()
             logger.info(f"[DEBUG] Google Calendar APIレスポンス: {event}")
