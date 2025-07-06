@@ -9,6 +9,7 @@ import pytz
 from config import Config
 from dateutil import parser
 from db import DBHelper
+import logging
 
 class GoogleCalendarService:
     def __init__(self):
@@ -211,7 +212,7 @@ class GoogleCalendarService:
             utc_end = end_time.astimezone(pytz.UTC)
             
             events_result = service.events().list(
-                calendarId='primary',
+                calendarId=Config.GOOGLE_CALENDAR_ID,
                 timeMin=utc_start.isoformat(),
                 timeMax=utc_end.isoformat(),
                 singleEvents=True,
@@ -237,7 +238,7 @@ class GoogleCalendarService:
             return event_list
             
         except Exception as e:
-            print(f"イベント取得エラー: {e}")
+            logging.error(f"イベント取得エラー: {e}")
             return []
     
     def find_free_slots_for_day(self, date, events, day_start="09:00", day_end="18:00", line_user_id=None):
@@ -252,7 +253,7 @@ class GoogleCalendarService:
             # eventsがNoneや空の場合は必ず再取得
             if (events is None or len(events) == 0) and line_user_id:
                 events = self.get_events_for_time_range(day_start_dt, day_end_dt, line_user_id)
-                print(f"[DEBUG] find_free_slots_for_day: 再取得したevents = {events}")
+                logging.info(f"[DEBUG] find_free_slots_for_day: 再取得したevents = {events}")
             # 既存予定を時間順にbusy_timesへ
             busy_times = []
             for event in events:
