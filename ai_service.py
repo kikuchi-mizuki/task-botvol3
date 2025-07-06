@@ -11,42 +11,35 @@ class AIService:
     def __init__(self):
         self.client = openai.OpenAI(api_key=Config.OPENAI_API_KEY)
     
+    def _get_jst_now_str(self):
+        now = datetime.now(pytz.timezone('Asia/Tokyo'))
+        return now.strftime('%Y-%m-%dT%H:%M:%S%z')
+    
     def extract_dates_and_times(self, text):
         """テキストから日時を抽出し、タスクの種類を判定します"""
         try:
+            now_jst = self._get_jst_now_str()
+            system_prompt = (
+                f"あなたは予定とタスクを管理するAIです。\n"
+                f"現在の日時（日本時間）は {now_jst} です。  \n"
+                "この日時は、すべての自然言語の解釈において**常に絶対的な基準**としてください。  \n"
+                "会話の流れや前回の入力に引きずられることなく、**毎回この現在日時を最優先にしてください。**\n"
+                "\n"
+                "あなたは日時抽出とタスク管理の専門家です。ユーザーのテキストを分析して、以下のJSON形式で返してください。\n\n"
+                "分析ルール:\n"
+                "1. 複数の日時がある場合は全て抽出\n"
+                "2. 日本語の日付表現（今日、明日、来週月曜日など）を具体的な日付に変換\n"
+                "3. 時間表現（午前9時、14時30分など）を24時間形式に変換\n"
+                "4. タスクの種類を判定：\n   - 日時のみの場合は「availability_check」（空き時間確認）\n   - 日時+タイトルの場合は「add_event」（予定追加）\n\n"
+                "出力形式:\n"
+                "{\n  \"task_type\": \"availability_check\" or \"add_event\",\n  \"dates\": [\n    {\n      \"date\": \"2024-01-15\",\n      \"time\": \"09:00\",\n      \"end_time\": \"10:00\",\n      \"description\": \"会議\"\n    }\n  ],\n  \"event_info\": {\n    \"title\": \"イベントタイトル\",\n    \"start_datetime\": \"2024-01-15T09:00:00\",\n    \"end_datetime\": \"2024-01-15T10:00:00\",\n    \"description\": \"説明（オプション）\"\n  }\n}\n"
+            )
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {
                         "role": "system",
-                        "content": """あなたは日時抽出とタスク管理の専門家です。ユーザーのテキストを分析して、以下のJSON形式で返してください。
-
-分析ルール:
-1. 複数の日時がある場合は全て抽出
-2. 日本語の日付表現（今日、明日、来週月曜日など）を具体的な日付に変換
-3. 時間表現（午前9時、14時30分など）を24時間形式に変換
-4. タスクの種類を判定：
-   - 日時のみの場合は「availability_check」（空き時間確認）
-   - 日時+タイトルの場合は「add_event」（予定追加）
-
-出力形式:
-{
-  "task_type": "availability_check" or "add_event",
-  "dates": [
-    {
-      "date": "2024-01-15",
-      "time": "09:00",
-      "end_time": "10:00",
-      "description": "会議"
-    }
-  ],
-  "event_info": {
-    "title": "イベントタイトル",
-    "start_datetime": "2024-01-15T09:00:00",
-    "end_datetime": "2024-01-15T10:00:00",
-    "description": "説明（オプション）"
-  }
-}"""
+                        "content": system_prompt
                     },
                     {
                         "role": "user",
@@ -77,27 +70,29 @@ class AIService:
     def extract_event_info(self, text):
         """イベント追加用の情報を抽出します"""
         try:
+            now_jst = self._get_jst_now_str()
+            system_prompt = (
+                f"あなたは予定とタスクを管理するAIです。\n"
+                f"現在の日時（日本時間）は {now_jst} です。  \n"
+                "この日時は、すべての自然言語の解釈において**常に絶対的な基準**としてください。  \n"
+                "会話の流れや前回の入力に引きずられることなく、**毎回この現在日時を最優先にしてください。**\n"
+                "\n"
+                "あなたはイベント情報抽出の専門家です。ユーザーのテキストからイベントのタイトルと日時を抽出し、以下のJSON形式で返してください。\n\n"
+                "抽出ルール:\n"
+                "1. イベントのタイトルを抽出\n"
+                "2. 開始日時と終了日時を抽出（終了時間が明示されていない場合は1時間後をデフォルトとする）\n"
+                "3. 日本語の日付表現を具体的な日付に変換\n"
+                "4. 時間表現を24時間形式に変換\n"
+                "5. タイムゾーンは日本時間（JST）を想定\n\n"
+                "出力形式:\n"
+                "{\n  \"title\": \"イベントタイトル\",\n  \"start_datetime\": \"2024-01-15T09:00:00\",\n  \"end_datetime\": \"2024-01-15T10:00:00\",\n  \"description\": \"説明（オプション）\"\n}\n"
+            )
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {
                         "role": "system",
-                        "content": """あなたはイベント情報抽出の専門家です。ユーザーのテキストからイベントのタイトルと日時を抽出し、以下のJSON形式で返してください。
-
-抽出ルール:
-1. イベントのタイトルを抽出
-2. 開始日時と終了日時を抽出（終了時間が明示されていない場合は1時間後をデフォルトとする）
-3. 日本語の日付表現を具体的な日付に変換
-4. 時間表現を24時間形式に変換
-5. タイムゾーンは日本時間（JST）を想定
-
-出力形式:
-{
-  "title": "イベントタイトル",
-  "start_datetime": "2024-01-15T09:00:00",
-  "end_datetime": "2024-01-15T10:00:00",
-  "description": "説明（オプション）"
-}"""
+                        "content": system_prompt
                     },
                     {
                         "role": "user",
@@ -193,22 +188,23 @@ class AIService:
     def check_multiple_dates_availability(self, dates_info):
         """複数の日付の空き時間を確認するための情報を抽出します"""
         try:
+            now_jst = self._get_jst_now_str()
+            system_prompt = (
+                f"あなたは予定とタスクを管理するAIです。\n"
+                f"現在の日時（日本時間）は {now_jst} です。  \n"
+                "この日時は、すべての自然言語の解釈において**常に絶対的な基準**としてください。  \n"
+                "会話の流れや前回の入力に引きずられることなく、**毎回この現在日時を最優先にしてください。**\n"
+                "\n"
+                "複数の日付の空き時間確認リクエストを処理してください。以下のJSON形式で返してください。\n\n"
+                "出力形式:\n"
+                "{\n  \"dates\": [\n    {\n      \"date\": \"2024-01-15\",\n      \"time_range\": \"09:00-18:00\"\n    }\n  ]\n}\n"
+            )
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {
                         "role": "system",
-                        "content": """複数の日付の空き時間確認リクエストを処理してください。以下のJSON形式で返してください。
-
-出力形式:
-{
-  "dates": [
-    {
-      "date": "2024-01-15",
-      "time_range": "09:00-18:00"
-    }
-  ]
-}"""
+                        "content": system_prompt
                     },
                     {
                         "role": "user",
