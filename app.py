@@ -203,10 +203,10 @@ def onetime_login():
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
             
             # 認証URLを生成（リダイレクトURIを設定）
+            flow.redirect_uri = request.url_root.rstrip('/') + '/oauth2callback'
             auth_url, _ = flow.authorization_url(
                 access_type='offline',
-                include_granted_scopes='true',
-                redirect_uri=request.url_root.rstrip('/') + '/oauth2callback'
+                include_granted_scopes='true'
             )
             
             # セッションにLINEユーザーIDとフロー情報を保存
