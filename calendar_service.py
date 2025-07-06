@@ -81,7 +81,7 @@ class GoogleCalendarService:
                 return s if s.endswith(("+09:00", "+00:00", "-0")) else s + "Z"
             # 指定された時間帯のイベントを取得
             events_result = self.service.events().list(
-                calendarId=Config.GOOGLE_CALENDAR_ID,
+                calendarId=Config.GOOGLE_CALENDAR_ID,  # 'primary'（各ユーザーのメインカレンダー）
                 timeMin=iso_no_z(start_time),
                 timeMax=iso_no_z(end_time),
                 singleEvents=True,
@@ -143,7 +143,7 @@ class GoogleCalendarService:
             logger.info(f"[DEBUG] Google Calendar APIへイベント追加リクエスト: {event}")
             # イベントを追加
             event = service.events().insert(
-                calendarId=Config.GOOGLE_CALENDAR_ID,
+                calendarId=Config.GOOGLE_CALENDAR_ID,  # 'primary'（各ユーザーのメインカレンダー）
                 body=event
             ).execute()
             logger.info(f"[DEBUG] Google Calendar APIレスポンス: {event}")
@@ -173,7 +173,7 @@ class GoogleCalendarService:
                     })
                     continue
                 events_result = self.service.events().list(
-                    calendarId=Config.GOOGLE_CALENDAR_ID,
+                    calendarId=Config.GOOGLE_CALENDAR_ID,  # 'primary'（各ユーザーのメインカレンダー）
                     timeMin=start_of_day.isoformat() + 'Z',
                     timeMax=end_of_day.isoformat() + 'Z',
                     singleEvents=True,
@@ -221,7 +221,7 @@ class GoogleCalendarService:
             utc_end = end_time.astimezone(pytz.UTC)
             
             events_result = service.events().list(
-                calendarId=Config.GOOGLE_CALENDAR_ID,
+                calendarId=Config.GOOGLE_CALENDAR_ID,  # 'primary'（各ユーザーのメインカレンダー）
                 timeMin=utc_start.isoformat(),
                 timeMax=utc_end.isoformat(),
                 singleEvents=True,

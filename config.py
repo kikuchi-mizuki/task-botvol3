@@ -12,7 +12,7 @@ class Config:
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
     
     # Google Calendar設定
-    GOOGLE_CALENDAR_ID = os.getenv('GOOGLE_CALENDAR_ID', 'primary')
+    GOOGLE_CALENDAR_ID = 'primary'
     GOOGLE_CREDENTIALS_FILE = os.getenv('GOOGLE_CREDENTIALS_FILE', 'credentials.json')
     
     # Flask設定
