@@ -32,6 +32,11 @@ except Exception as e:
 
 print("DEBUG: OPENAI_API_KEY =", os.getenv("OPENAI_API_KEY"))
 
+# Railway環境でcredentials.jsonを書き出す
+if "GOOGLE_CREDENTIALS_FILE" in os.environ:
+    with open("credentials.json", "w") as f:
+        f.write(os.environ["GOOGLE_CREDENTIALS_FILE"])
+
 @app.route("/callback", methods=['POST'])
 def callback():
     """LINE Webhookのコールバックエンドポイント"""
