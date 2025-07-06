@@ -33,6 +33,9 @@ class AIService:
                 "4. タスクの種類を判定：\n   - 日時のみの場合は「availability_check」（空き時間確認）\n   - 日時+タイトルの場合は「add_event」（予定追加）\n"
                 "5. 自然言語の時間表現は必ず具体的な時刻範囲・日付範囲に変換してください。\n"
                 "   例：'18時以降'→'18:00〜23:59'、'終日'→'00:00〜23:59'、'今日'→'現在時刻〜23:59'、'今日から1週間'→'今日〜7日後の23:59'。\n"
+                "6. 1行に複数の予定が含まれる場合や、改行・スペース・句読点で区切られている場合も、すべての予定を抽出してください。\n"
+                "   例：'7/11 15:00〜16:00 18:00〜19:00' → 2件の予定として抽出\n"
+                "   例：'7/12 終日' → 1件の終日予定として抽出\n"
                 "\n"
                 "出力形式:\n"
                 "{\n  \"task_type\": \"availability_check\" or \"add_event\",\n  \"dates\": [\n    {\n      \"date\": \"2024-01-15\",\n      \"time\": \"09:00\",\n      \"end_time\": \"10:00\",\n      \"description\": \"会議\"\n    }\n  ],\n  \"event_info\": {\n    \"title\": \"イベントタイトル\",\n    \"start_datetime\": \"2024-01-15T09:00:00\",\n    \"end_datetime\": \"2024-01-15T10:00:00\",\n    \"description\": \"説明（オプション）\"\n  }\n}\n"
@@ -53,7 +56,8 @@ class AIService:
             )
             
             result = response.choices[0].message.content
-            return self._parse_ai_response(result)
+            parsed = self._parse_ai_response(result)
+            return self._supplement_times(parsed, text)
             
         except Exception as e:
             return {"error": f"AI処理エラー: {str(e)}"}
@@ -69,6 +73,44 @@ class AIService:
                 return {"error": "AI応答のパースに失敗しました"}
         except Exception as e:
             return {"error": f"JSONパースエラー: {str(e)}"}
+    
+    def _supplement_times(self, parsed, original_text):
+        """AIの出力でtimeやend_timeが空の場合に自然言語表現や状況に応じて自動補完する"""
+        from datetime import datetime, timedelta
+        import re
+        jst = pytz.timezone('Asia/Tokyo')
+        now = datetime.now(jst)
+        if not parsed or 'dates' not in parsed:
+            return parsed
+        for d in parsed['dates']:
+            phrase = d.get('description', '') or original_text
+            # 終日
+            if (not d.get('time') and not d.get('end_time')) or re.search(r'終日', phrase):
+                d['time'] = '00:00'
+                d['end_time'] = '23:59'
+            # 18時以降
+            elif re.search(r'(\d{1,2})時以降', phrase):
+                m = re.search(r'(\d{1,2})時以降', phrase)
+                if m:
+                    d['time'] = f"{int(m.group(1)):02d}:00"
+                    d['end_time'] = '23:59'
+            # 今日
+            elif re.search(r'今日', phrase):
+                d['date'] = now.strftime('%Y-%m-%d')
+                if not d.get('time'):
+                    d['time'] = now.strftime('%H:%M')
+                if not d.get('end_time'):
+                    d['end_time'] = '23:59'
+            # 今日から1週間
+            elif re.search(r'今日から1週間', phrase):
+                d['date'] = now.strftime('%Y-%m-%d')
+                d['end_date'] = (now + timedelta(days=6)).strftime('%Y-%m-%d')
+                d['time'] = '00:00'
+                d['end_time'] = '23:59'
+            # end_timeが空
+            elif d.get('time') and not d.get('end_time'):
+                d['end_time'] = '23:59'
+        return parsed
     
     def extract_event_info(self, text):
         """イベント追加用の情報を抽出します"""
