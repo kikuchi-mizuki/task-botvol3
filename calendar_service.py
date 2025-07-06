@@ -297,6 +297,13 @@ class GoogleCalendarService:
                     busy_times.append((max(allday_start, day_start_dt), min(allday_end, day_end_dt)))
             # 空き時間を計算
             free_slots = []
+            if not busy_times:
+                # 予定がなければ枠全体を空き時間として返す
+                free_slots.append({
+                    'start': day_start_dt.strftime('%H:%M'),
+                    'end': day_end_dt.strftime('%H:%M')
+                })
+                return free_slots
             current_time = day_start_dt
             for busy_start, busy_end in sorted(busy_times):
                 if current_time < busy_start:
