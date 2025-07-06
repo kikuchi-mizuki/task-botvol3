@@ -115,6 +115,7 @@ class GoogleCalendarService:
             
             # 既存の予定をチェック
             events = self.get_events_for_time_range(start_time, end_time, line_user_id)
+            logger.info(f"[DEBUG] add_event: 追加前に取得したevents = {events}")
             if events:
                 conflicting_events = []
                 for event in events:
