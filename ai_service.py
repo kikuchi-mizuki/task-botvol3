@@ -310,13 +310,18 @@ class AIService:
             {'date': 'YYYY-MM-DD', 'start_time': 'HH:MM', 'end_time': 'HH:MM', 'free_slots': [{'start': 'HH:MM', 'end': 'HH:MM'}, ...]},
             ...
         ]
-        各枠ごとに空き時間を返す
+        各枠ごとに空き時間を返す（重複枠は除外）
         """
         jst = pytz.timezone('Asia/Tokyo')
         if not free_slots_by_frame:
             return "✅空き時間はありませんでした。"
         response = "✅以下が空き時間です！\n\n"
+        seen = set()
         for frame in free_slots_by_frame:
+            key = (frame['date'], frame['start_time'], frame['end_time'])
+            if key in seen:
+                continue
+            seen.add(key)
             date = frame['date']
             start_time = frame['start_time']
             end_time = frame['end_time']
