@@ -249,9 +249,10 @@ class GoogleCalendarService:
             jst = pytz.timezone('Asia/Tokyo')
             day_start_dt = jst.localize(day_start_dt)
             day_end_dt = jst.localize(day_end_dt)
-            # eventsがNoneや空でline_user_idがある場合のみ取得
+            # eventsがNoneや空の場合は必ず再取得
             if (events is None or len(events) == 0) and line_user_id:
                 events = self.get_events_for_time_range(day_start_dt, day_end_dt, line_user_id)
+                print(f"[DEBUG] find_free_slots_for_day: 再取得したevents = {events}")
             # 既存予定を時間順にbusy_timesへ
             busy_times = []
             for event in events:
