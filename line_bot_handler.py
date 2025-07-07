@@ -71,7 +71,30 @@ class LineBotHandler:
         """メッセージを処理します"""
         user_message = event.message.text
         line_user_id = event.source.user_id
-        
+
+        # 「はい」返答による強制追加判定
+        if user_message.strip() in ["はい", "追加", "OK", "Yes", "yes"]:
+            pending_json = self.db_helper.get_pending_event(line_user_id)
+            if pending_json:
+                import json
+                event_info = json.loads(pending_json)
+                # 予定を強制追加
+                from dateutil import parser
+                start_datetime = parser.parse(event_info['start_datetime'])
+                end_datetime = parser.parse(event_info['end_datetime'])
+                start_datetime = self.jst.localize(start_datetime)
+                end_datetime = self.jst.localize(end_datetime)
+                success, message, result = self.calendar_service.add_event(
+                    event_info['title'],
+                    start_datetime,
+                    end_datetime,
+                    event_info.get('description', ''),
+                    line_user_id=line_user_id
+                )
+                self.db_helper.delete_pending_event(line_user_id)
+                return TextSendMessage(text=f"✅予定を追加しました：{event_info['title']}")
+            # ペンディングがなければ通常処理
+
         try:
             # 環境変数が設定されていない場合の処理
             if not Config.LINE_CHANNEL_ACCESS_TOKEN or not Config.LINE_CHANNEL_SECRET:
@@ -95,8 +118,32 @@ class LineBotHandler:
                 print(f"[DEBUG] dates_info: {ai_result.get('dates', [])}")
                 return self._handle_availability_check(ai_result.get('dates', []), line_user_id)
             else:
-                return self._handle_event_addition(user_message, line_user_id)
-            
+                # 予定追加時の重複確認ロジック
+                event_info = self.ai_service.extract_event_info(user_message)
+                if 'error' in event_info:
+                    return TextSendMessage(text="イベント情報を正しく認識できませんでした。\n\n例: 「明日の午前9時から会議を追加して」\n「来週月曜日の14時から打ち合わせ」")
+                from dateutil import parser
+                start_datetime = parser.parse(event_info['start_datetime'])
+                end_datetime = parser.parse(event_info['end_datetime'])
+                start_datetime = self.jst.localize(start_datetime)
+                end_datetime = self.jst.localize(end_datetime)
+                # 既存予定を取得
+                events = self.calendar_service.get_events_for_time_range(start_datetime, end_datetime, line_user_id)
+                if events:
+                    # 重複予定がある場合はpending_eventsに保存し確認
+                    import json
+                    self.db_helper.save_pending_event(line_user_id, json.dumps(event_info))
+                    event_lines = '\n'.join([f"- {e['title']} ({parser.parse(e['start']).strftime('%H:%M')}～{parser.parse(e['end']).strftime('%H:%M')})" for e in events])
+                    return TextSendMessage(text=f"⚠️ この時間帯に既に予定が存在します：\n{event_lines}\n\nそれでも追加しますか？")
+                # 重複がなければそのまま追加
+                success, message, result = self.calendar_service.add_event(
+                    event_info['title'],
+                    start_datetime,
+                    end_datetime,
+                    event_info.get('description', ''),
+                    line_user_id=line_user_id
+                )
+                return TextSendMessage(text=self.ai_service.format_event_confirmation(success, message, result))
         except Exception as e:
             return TextSendMessage(text=f"エラーが発生しました: {str(e)}")
     

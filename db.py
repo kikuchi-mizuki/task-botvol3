@@ -31,6 +31,14 @@ class DBHelper:
                 created_at TEXT
             )
         ''')
+        # 予定追加の一時保存テーブル
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS pending_events (
+                line_user_id TEXT PRIMARY KEY,
+                event_json TEXT,
+                created_at TEXT
+            )
+        ''')
         self.conn.commit()
 
     # --- users ---
@@ -164,4 +172,25 @@ class DBHelper:
         c = self.conn.cursor()
         c.execute('SELECT line_user_id FROM oauth_states WHERE state = ?', (state,))
         result = c.fetchone()
-        return result[0] if result else None 
+        return result[0] if result else None
+
+    def save_pending_event(self, line_user_id, event_json):
+        now = datetime.utcnow().isoformat()
+        c = self.conn.cursor()
+        c.execute('''
+            INSERT INTO pending_events (line_user_id, event_json, created_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(line_user_id) DO UPDATE SET event_json=excluded.event_json, created_at=excluded.created_at
+        ''', (line_user_id, event_json, now))
+        self.conn.commit()
+
+    def get_pending_event(self, line_user_id):
+        c = self.conn.cursor()
+        c.execute('SELECT event_json FROM pending_events WHERE line_user_id=?', (line_user_id,))
+        row = c.fetchone()
+        return row[0] if row else None
+
+    def delete_pending_event(self, line_user_id):
+        c = self.conn.cursor()
+        c.execute('DELETE FROM pending_events WHERE line_user_id=?', (line_user_id,))
+        self.conn.commit() 
