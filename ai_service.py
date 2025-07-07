@@ -189,7 +189,8 @@ class AIService:
                 "\n"
                 "あなたはイベント情報抽出の専門家です。ユーザーのテキストからイベントのタイトルと日時を抽出し、以下のJSON形式で返してください。\n\n"
                 "抽出ルール:\n"
-                "1. イベントのタイトルを抽出\n"
+                "1. イベントのタイトルは、直前の人名や主語、会議名なども含めて、できるだけ長く・具体的に抽出してください。\n"
+                "   例:『田中さんとMTG 新作アプリの件』→タイトル:『田中さんとMTG』、説明:『新作アプリの件』\n"
                 "2. 開始日時と終了日時を抽出（終了時間が明示されていない場合は1時間後をデフォルトとする）\n"
                 "3. 日本語の日付表現を具体的な日付に変換\n"
                 "4. 時間表現を24時間形式に変換\n"
@@ -211,10 +212,19 @@ class AIService:
                 ],
                 temperature=0.1
             )
-            
             result = response.choices[0].message.content
-            return self._parse_ai_response(result)
-            
+            parsed = self._parse_ai_response(result)
+            # --- タイトルが短すぎる場合は人名や主語＋MTGなどを含めて補完 ---
+            if parsed and isinstance(parsed, dict) and 'title' in parsed:
+                title = parsed['title']
+                # 例: "MTG"や"会議"など短い場合は元テキストから人名＋MTGを抽出
+                if title and len(title) <= 4:
+                    import re
+                    # 例: "田中さんとMTG" "佐藤さん会議" "山田さんMTG" など
+                    m = re.search(r'([\w一-龠ぁ-んァ-ン]+さん[と]?\s*MTG|[\w一-龠ぁ-んァ-ン]+さん[と]?\s*会議)', text)
+                    if m:
+                        parsed['title'] = m.group(1)
+            return parsed
         except Exception as e:
             return {"error": f"AI処理エラー: {str(e)}"}
     
