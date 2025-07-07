@@ -72,6 +72,10 @@ class LineBotHandler:
         user_message = event.message.text
         line_user_id = event.source.user_id
 
+        # Google認証未完了なら必ず認証案内を返す
+        if not self._check_user_auth(line_user_id):
+            return self._send_auth_guide(line_user_id)
+
         # 「はい」返答による強制追加判定
         if user_message.strip() in ["はい", "追加", "OK", "Yes", "yes"]:
             pending_json = self.db_helper.get_pending_event(line_user_id)
