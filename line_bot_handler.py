@@ -101,7 +101,12 @@ class LineBotHandler:
                 self.db_helper.delete_pending_event(line_user_id)
                 response_text = self.ai_service.format_event_confirmation(success, message, result)
                 return TextSendMessage(text=response_text)
-            # ペンディングがなければ通常処理
+        else:
+            # 「はい」以外の返答でpending_eventsがあれば削除し、キャンセルメッセージを返す
+            pending_json = self.db_helper.get_pending_event(line_user_id)
+            if pending_json:
+                self.db_helper.delete_pending_event(line_user_id)
+                return TextSendMessage(text="予定追加をキャンセルしました。")
 
         try:
             # 環境変数が設定されていない場合の処理
