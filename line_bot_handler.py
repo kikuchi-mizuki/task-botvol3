@@ -108,8 +108,8 @@ class LineBotHandler:
             print(f"[DEBUG] ai_result: {ai_result}")
             
             if 'error' in ai_result:
-                # AI処理に失敗した場合、直接イベント追加を試行
-                return self._handle_event_addition(user_message, line_user_id)
+                # AI処理に失敗した場合、ガイダンスメッセージを返す
+                return TextSendMessage(text="日時の送信で空き時間が分かります！\n日時と内容の送信で予定を追加します！\n\n例：\n・「明日の空き時間」\n・「7/15 15:00〜16:00の空き時間」\n・「明日の午前9時から会議を追加して」\n・「来週月曜日の14時から打ち合わせ」")
             
             # タスクタイプに基づいて処理
             task_type = ai_result.get('task_type', 'add_event')
@@ -117,7 +117,7 @@ class LineBotHandler:
             if task_type == 'availability_check':
                 print(f"[DEBUG] dates_info: {ai_result.get('dates', [])}")
                 return self._handle_availability_check(ai_result.get('dates', []), line_user_id)
-            else:
+            elif task_type == 'add_event':
                 # 予定追加時の重複確認ロジック
                 event_info = self.ai_service.extract_event_info(user_message)
                 if 'error' in event_info:
@@ -144,6 +144,9 @@ class LineBotHandler:
                     line_user_id=line_user_id
                 )
                 return TextSendMessage(text=self.ai_service.format_event_confirmation(success, message, result))
+            else:
+                # 未対応コマンドの場合もガイダンスメッセージ
+                return TextSendMessage(text="日時の送信で空き時間が分かります！\n日時と内容の送信で予定を追加します！\n\n例：\n・「明日の空き時間」\n・「7/15 15:00〜16:00の空き時間」\n・「明日の午前9時から会議を追加して」\n・「来週月曜日の14時から打ち合わせ」")
         except Exception as e:
             return TextSendMessage(text=f"エラーが発生しました: {str(e)}")
     
