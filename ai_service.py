@@ -106,9 +106,9 @@ class AIService:
                 if m:
                     d['time'] = f"{int(m.group(1)):02d}:00"
                     d['end_time'] = '23:59'
-            # 明後日
-            elif re.search(r'明後日', phrase):
-                d['date'] = (now + timedelta(days=2)).strftime('%Y-%m-%d')
+            # 明日
+            elif re.search(r'明日', phrase):
+                d['date'] = (now + timedelta(days=1)).strftime('%Y-%m-%d')
                 if not d.get('time'):
                     d['time'] = '08:00'
                 if not d.get('end_time'):
