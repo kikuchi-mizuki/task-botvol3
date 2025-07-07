@@ -88,6 +88,8 @@ class LineBotHandler:
                 end_datetime = parser.parse(event_info['end_datetime'])
                 start_datetime = self.jst.localize(start_datetime)
                 end_datetime = self.jst.localize(end_datetime)
+                if not self.calendar_service or not self.ai_service:
+                    return TextSendMessage(text="カレンダーサービスまたはAIサービスが初期化されていません。")
                 success, message, result = self.calendar_service.add_event(
                     event_info['title'],
                     start_datetime,
@@ -96,7 +98,8 @@ class LineBotHandler:
                     line_user_id=line_user_id
                 )
                 self.db_helper.delete_pending_event(line_user_id)
-                return TextSendMessage(text=f"✅予定を追加しました：{event_info['title']}")
+                response_text = self.ai_service.format_event_confirmation(success, message, result)
+                return TextSendMessage(text=response_text)
             # ペンディングがなければ通常処理
 
         try:
@@ -123,6 +126,8 @@ class LineBotHandler:
                 return self._handle_availability_check(ai_result.get('dates', []), line_user_id)
             elif task_type == 'add_event':
                 # 予定追加時の重複確認ロジック
+                if not self.calendar_service:
+                    return TextSendMessage(text="カレンダーサービスが初期化されていません。")
                 event_info = self.ai_service.extract_event_info(user_message)
                 if 'error' in event_info:
                     return TextSendMessage(text="イベント情報を正しく認識できませんでした。\n\n例: 「明日の午前9時から会議を追加して」\n「来週月曜日の14時から打ち合わせ」")
