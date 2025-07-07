@@ -95,7 +95,8 @@ class LineBotHandler:
                     start_datetime,
                     end_datetime,
                     event_info.get('description', ''),
-                    line_user_id=line_user_id
+                    line_user_id=line_user_id,
+                    force_add=True
                 )
                 self.db_helper.delete_pending_event(line_user_id)
                 response_text = self.ai_service.format_event_confirmation(success, message, result)
@@ -150,7 +151,8 @@ class LineBotHandler:
                     start_datetime,
                     end_datetime,
                     event_info.get('description', ''),
-                    line_user_id=line_user_id
+                    line_user_id=line_user_id,
+                    force_add=True
                 )
                 return TextSendMessage(text=self.ai_service.format_event_confirmation(success, message, result))
             else:
@@ -246,7 +248,8 @@ class LineBotHandler:
                 start_datetime,
                 end_datetime,
                 event_info.get('description', ''),
-                line_user_id=line_user_id
+                line_user_id=line_user_id,
+                force_add=True
             )
             logger.info(f"[DEBUG] add_event result: success={success}, message={message}, result={result}")
             

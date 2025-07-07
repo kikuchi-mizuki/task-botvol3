@@ -105,32 +105,30 @@ class GoogleCalendarService:
         except Exception as e:
             return None, f"エラーが発生しました: {str(e)}"
     
-    def add_event(self, title, start_time, end_time, description="", line_user_id=None):
+    def add_event(self, title, start_time, end_time, description="", line_user_id=None, force_add=False):
         """カレンダーにイベントを追加します"""
         try:
             if not line_user_id:
                 return False, "ユーザーIDが必要です", None
-            
             service = self._get_calendar_service(line_user_id)
-            
-            # 既存の予定をチェック
-            events = self.get_events_for_time_range(start_time, end_time, line_user_id)
-            logger.info(f"[DEBUG] add_event: 追加前に取得したevents = {events}")
-            if events and len(events) > 0:
-                conflicting_events = []
-                for event in events:
-                    if not isinstance(event, dict):
-                        logger.warning(f"[WARN] add_event: eventがdict型でないためスキップ: {event}")
-                        continue
-                    conflicting_events.append({
-                        'title': event.get('title', '予定なし'),
-                        'start': event['start'].get('dateTime', event['start'].get('date')) if isinstance(event['start'], dict) else event['start'],
-                        'end': event['end'].get('dateTime', event['end'].get('date')) if isinstance(event['end'], dict) else event['end']
-                    })
-                logger.info(f"[DEBUG] 既存の予定があるため追加しません: {conflicting_events}")
-                if conflicting_events:
-                    return False, "指定された時間に既存の予定があります", conflicting_events
-            
+            # 既存の予定をチェック（force_addがFalseのときのみ）
+            if not force_add:
+                events = self.get_events_for_time_range(start_time, end_time, line_user_id)
+                logger.info(f"[DEBUG] add_event: 追加前に取得したevents = {events}")
+                if events and len(events) > 0:
+                    conflicting_events = []
+                    for event in events:
+                        if not isinstance(event, dict):
+                            logger.warning(f"[WARN] add_event: eventがdict型でないためスキップ: {event}")
+                            continue
+                        conflicting_events.append({
+                            'title': event.get('title', '予定なし'),
+                            'start': event['start'].get('dateTime', event['start'].get('date')) if isinstance(event['start'], dict) else event['start'],
+                            'end': event['end'].get('dateTime', event['end'].get('date')) if isinstance(event['end'], dict) else event['end']
+                        })
+                    logger.info(f"[DEBUG] 既存の予定があるため追加しません: {conflicting_events}")
+                    if conflicting_events:
+                        return False, "指定された時間に既存の予定があります", conflicting_events
             # イベントを作成
             event = {
                 'summary': title,
