@@ -302,8 +302,10 @@ class GoogleCalendarService:
                     'end': end_dt.strftime('%H:%M')
                 })
                 return free_slots
+            # busy_timesを開始時刻順に明示的にソート
+            busy_times = sorted(busy_times, key=lambda x: x[0])
             current_time = start_dt
-            for busy_start, busy_end in sorted(busy_times):
+            for busy_start, busy_end in busy_times:
                 if current_time < busy_start:
                     free_slots.append({
                         'start': current_time.strftime('%H:%M'),

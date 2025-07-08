@@ -8,6 +8,12 @@ import os
 import sys
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import json
+
+from calendar_service import GoogleCalendarService
+import pytz
+
+from ai_service import AIService
 
 # 環境変数を読み込み
 load_dotenv()
@@ -155,6 +161,54 @@ def test_integration():
         print(f"❌ 統合テストエラー: {e}")
         print()
 
+def test_find_free_slots_for_day():
+    service = GoogleCalendarService()
+    jst = pytz.timezone('Asia/Tokyo')
+    # 予定: 20:00〜20:30
+    events = [
+        {'title': 'MTG', 'start': '2025-07-10T20:00:00+09:00', 'end': '2025-07-10T20:30:00+09:00'}
+    ]
+    start_dt = jst.localize(datetime.strptime('2025-07-10 18:00', '%Y-%m-%d %H:%M'))
+    end_dt = jst.localize(datetime.strptime('2025-07-10 22:00', '%Y-%m-%d %H:%M'))
+    free_slots = service.find_free_slots_for_day(start_dt, end_dt, events)
+    print('free_slots:', free_slots)
+    assert free_slots == [
+        {'start': '18:00', 'end': '20:00'},
+        {'start': '20:30', 'end': '22:00'}
+    ], '空き枠分割ロジックにバグがあります'
+
+def test_full_flow():
+    ai = AIService()
+    from calendar_service import GoogleCalendarService
+    import pytz
+    from datetime import datetime
+    service = GoogleCalendarService()
+    jst = pytz.timezone('Asia/Tokyo')
+    # ユーザー入力
+    user_message = '・7/10 9-10時\n・7/11 9-10時'
+    ai_result = ai.extract_dates_and_times(user_message)
+    print('ai_result:', ai_result)
+    dates = ai_result.get('dates', [])
+    if isinstance(dates, str):
+        dates = json.loads(dates)
+    free_slots_by_frame = []
+    for date_info in dates:
+        date_str = date_info.get('date')
+        start_time = date_info.get('time')
+        end_time = date_info.get('end_time')
+        start_dt = jst.localize(datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M"))
+        end_dt = jst.localize(datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M"))
+        events = []  # 予定なしでテスト
+        free_slots = service.find_free_slots_for_day(start_dt, end_dt, events)
+        free_slots_by_frame.append({
+            'date': date_str,
+            'start_time': start_time,
+            'end_time': end_time,
+            'free_slots': free_slots
+        })
+    response_text = ai.format_free_slots_response_by_frame(free_slots_by_frame)
+    print('response_text:\n', response_text)
+
 def main():
     """メイン関数"""
     print("LINE Calendar Bot テスト開始")
@@ -180,4 +234,7 @@ def main():
     print("\n4. ブラウザで http://localhost:5000/test にアクセスして設定を確認してください")
 
 if __name__ == "__main__":
-    main() 
+    test_find_free_slots_for_day()
+    print('find_free_slots_for_dayテスト成功')
+    test_full_flow()
+    print('full_flowテスト成功') 
