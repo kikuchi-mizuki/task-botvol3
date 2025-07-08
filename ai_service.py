@@ -68,8 +68,8 @@ class AIService:
                 ],
                 temperature=0.1
             )
-            
             result = response.choices[0].message.content
+            print(f"[DEBUG] AI生レスポンス: {result}")
             parsed = self._parse_ai_response(result)
             return self._supplement_times(parsed, text)
             
