@@ -94,18 +94,23 @@ class AIService:
         import re
         jst = pytz.timezone('Asia/Tokyo')
         now = datetime.now(jst)
+        print(f"[DEBUG] _supplement_times開始: parsed={parsed}")
+        print(f"[DEBUG] 元テキスト: {original_text}")
         if not parsed or 'dates' not in parsed:
+            print(f"[DEBUG] datesが存在しない: {parsed}")
             return parsed
         # --- 既存AI抽出の補完処理 ---
         allday_dates = set()
         new_dates = []
         for d in parsed['dates']:
+            print(f"[DEBUG] datesループ: {d}")
             phrase = d.get('description', '') or original_text
             # 終日
             if (not d.get('time') and not d.get('end_time')) or re.search(r'終日', phrase):
                 d['time'] = '00:00'
                 d['end_time'] = '23:59'
                 if d.get('date') in allday_dates:
+                    print(f"[DEBUG] 同じ日付の終日予定はスキップ: {d.get('date')}")
                     continue  # 同じ日付の終日予定は1件だけ
                 allday_dates.add(d.get('date'))
             # 18時以降
@@ -147,19 +152,22 @@ class AIService:
                     e = d.get('end_time', '')
                     d['title'] = f"予定（{d.get('date', '')} {t}〜{e}）"
             new_dates.append(d)
+        print(f"[DEBUG] new_dates(補完後): {new_dates}")
         # --- ここから全日枠の除外 ---
         if len(new_dates) > 1:
             filtered = []
             for d in new_dates:
                 if d.get('time') == '00:00' and d.get('end_time') == '23:59':
                     if any((d2.get('date') == d.get('date') and (d2.get('time') != '00:00' or d2.get('end_time') != '23:59')) for d2 in new_dates):
+                        print(f"[DEBUG] 全日枠を除外: {d}")
                         continue
                 filtered.append(d)
             new_dates = filtered
+        print(f"[DEBUG] new_dates(全日枠除外後): {new_dates}")
         # --- 正規表現で漏れた枠を補完 ---
-        # 例: 7/10 9-10時, 7/11 9:00-10:00, 7/12 15:00〜16:00, 7/10 9時-10時, 7/10 9:00-10:00
         pattern1 = r'(\d{1,2})/(\d{1,2})[\s　]*([0-9]{1,2}):?([0-9]{0,2})[\-〜~]([0-9]{1,2}):?([0-9]{0,2})'
         matches1 = re.findall(pattern1, original_text)
+        print(f"[DEBUG] pattern1マッチ: {matches1}")
         for m in matches1:
             month, day, sh, sm, eh, em = m
             year = now.year
@@ -182,9 +190,10 @@ class AIService:
                 if parsed.get('task_type') == 'add_event':
                     new_date_entry['title'] = f"予定（{date_str} {start_time}〜{end_time}）"
                 new_dates.append(new_date_entry)
-        # 例: ・7/10 9-10時 などの箇条書きにも対応
+                print(f"[DEBUG] pattern1で補完: {new_date_entry}")
         pattern2 = r'[・\-]\s*(\d{1,2})/(\d{1,2})\s*([0-9]{1,2})-([0-9]{1,2})時'
         matches2 = re.findall(pattern2, original_text)
+        print(f"[DEBUG] pattern2マッチ: {matches2}")
         for m in matches2:
             month, day, sh, eh = m
             year = now.year
@@ -207,9 +216,10 @@ class AIService:
                 if parsed.get('task_type') == 'add_event':
                     new_date_entry['title'] = f"予定（{date_str} {start_time}〜{end_time}）"
                 new_dates.append(new_date_entry)
-        # 追加: 日付+「9-10時」「9時-10時」「9:00-10:00」形式の抽出
+                print(f"[DEBUG] pattern2で補完: {new_date_entry}")
         pattern3 = r'(\d{1,2})/(\d{1,2})\s*([0-9]{1,2})時?-([0-9]{1,2})時?'
         matches3 = re.findall(pattern3, original_text)
+        print(f"[DEBUG] pattern3マッチ: {matches3}")
         for m in matches3:
             month, day, sh, eh = m
             year = now.year
@@ -232,6 +242,8 @@ class AIService:
                 if parsed.get('task_type') == 'add_event':
                     new_date_entry['title'] = f"予定（{date_str} {start_time}〜{end_time}）"
                 new_dates.append(new_date_entry)
+                print(f"[DEBUG] pattern3で補完: {new_date_entry}")
+        print(f"[DEBUG] new_dates(正規表現補完後): {new_dates}")
         parsed['dates'] = new_dates
         return parsed
     
