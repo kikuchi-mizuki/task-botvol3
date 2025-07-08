@@ -110,10 +110,16 @@ class AIService:
             return parsed
         allday_dates = set()
         new_dates = []
+        # 1. AI抽出を最優先。time, end_timeが空欄のものだけ補完
         for d in parsed['dates']:
             print(f"[DEBUG] datesループ: {d}")
             phrase = d.get('description', '') or original_text
-            # まず範囲表現（9-10時、9:00-10:00など）
+            # time, end_timeが両方セットされていれば何もしない
+            if d.get('time') and d.get('end_time'):
+                new_dates.append(d)
+                continue
+            # time, end_timeが空欄の場合のみ補完
+            # 範囲表現
             range_match = re.search(r'(\d{1,2})[\-〜~](\d{1,2})時', phrase)
             if range_match:
                 d['time'] = f"{int(range_match.group(1)):02d}:00"
@@ -164,19 +170,8 @@ class AIService:
                     e = d.get('end_time', '')
                     d['title'] = f"予定（{d.get('date', '')} {t}〜{e}）"
             new_dates.append(d)
-        print(f"[DEBUG] new_dates(補完後): {new_dates}")
-        # --- ここから全日枠の除外 ---
-        if len(new_dates) > 1:
-            filtered = []
-            for d in new_dates:
-                if d.get('time') == '00:00' and d.get('end_time') == '23:59':
-                    if any((d2.get('date') == d.get('date') and (d2.get('time') != '00:00' or d2.get('end_time') != '23:59')) for d2 in new_dates):
-                        print(f"[DEBUG] 全日枠を除外: {d}")
-                        continue
-                filtered.append(d)
-            new_dates = filtered
-        print(f"[DEBUG] new_dates(全日枠除外後): {new_dates}")
-        # --- 正規表現で漏れた枠を補完 ---
+        print(f"[DEBUG] new_dates(AI+補完): {new_dates}")
+        # 2. 正規表現で漏れた枠を「追加」する（AI抽出に無い場合のみ）
         pattern1 = r'(\d{1,2})/(\d{1,2})[\s　]*([0-9]{1,2}):?([0-9]{0,2})[\-〜~]([0-9]{1,2}):?([0-9]{0,2})'
         matches1 = re.findall(pattern1, original_text)
         print(f"[DEBUG] pattern1マッチ: {matches1}")
@@ -202,7 +197,7 @@ class AIService:
                 if parsed.get('task_type') == 'add_event':
                     new_date_entry['title'] = f"予定（{date_str} {start_time}〜{end_time}）"
                 new_dates.append(new_date_entry)
-                print(f"[DEBUG] pattern1で補完: {new_date_entry}")
+                print(f"[DEBUG] pattern1で追加: {new_date_entry}")
         pattern2 = r'[・\-]\s*(\d{1,2})/(\d{1,2})\s*([0-9]{1,2})-([0-9]{1,2})時'
         matches2 = re.findall(pattern2, original_text)
         print(f"[DEBUG] pattern2マッチ: {matches2}")
@@ -228,7 +223,7 @@ class AIService:
                 if parsed.get('task_type') == 'add_event':
                     new_date_entry['title'] = f"予定（{date_str} {start_time}〜{end_time}）"
                 new_dates.append(new_date_entry)
-                print(f"[DEBUG] pattern2で補完: {new_date_entry}")
+                print(f"[DEBUG] pattern2で追加: {new_date_entry}")
         pattern3 = r'(\d{1,2})/(\d{1,2})\s*([0-9]{1,2})時?-([0-9]{1,2})時?'
         matches3 = re.findall(pattern3, original_text)
         print(f"[DEBUG] pattern3マッチ: {matches3}")
@@ -254,8 +249,8 @@ class AIService:
                 if parsed.get('task_type') == 'add_event':
                     new_date_entry['title'] = f"予定（{date_str} {start_time}〜{end_time}）"
                 new_dates.append(new_date_entry)
-                print(f"[DEBUG] pattern3で補完: {new_date_entry}")
-        print(f"[DEBUG] new_dates(正規表現補完後): {new_dates}")
+                print(f"[DEBUG] pattern3で追加: {new_date_entry}")
+        print(f"[DEBUG] new_dates(正規表現追加後): {new_dates}")
         parsed['dates'] = new_dates
         return parsed
     
