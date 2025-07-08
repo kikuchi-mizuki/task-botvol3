@@ -29,8 +29,8 @@ class AIService:
                 "分析ルール:\n"
                 "1. 複数の日時がある場合は全て抽出\n"
                 "2. 日本語の日付表現（今日、明日、来週月曜日など）を具体的な日付に変換\n"
-                "3. 時間表現（午前9時、14時30分など）を24時間形式に変換\n"
-                "4. **タスクの種類を判定（重要）**:\n   - 日時のみ（タイトルや内容がない）場合は必ず「availability_check」（空き時間確認）\n   - 日時+タイトル/予定内容がある場合は「add_event」（予定追加）\n   - 例：「7/8 18時以降」→ availability_check（日時のみ）\n   - 例：「7/10 18:00〜20:00」→ availability_check（日時のみ）\n   - 例：「・7/10 9-10時\n・7/11 9-10時」→ availability_check（日時のみ複数）\n   - 例：「明日の午前9時から会議を追加して」→ add_event（日時+予定内容）\n   - 例：「来週月曜日の14時から打ち合わせ」→ add_event（日時+予定内容）\n"
+                "3. 時間表現（午前9時、14時30分、9-10時など）を24時間形式に変換\n"
+                "4. **タスクの種類を判定（重要）**:\n   - 日時のみ（タイトルや内容がない）場合は必ず「availability_check」（空き時間確認）\n   - 日時+タイトル/予定内容がある場合は「add_event」（予定追加）\n   - 例：「7/8 18時以降」→ availability_check（日時のみ）\n   - 例：「7/10 18:00〜20:00」→ availability_check（日時のみ）\n   - 例：「・7/10 9-10時\n・7/11 9-10時」→ availability_check（日時のみ複数）\n   - 例：「7/10 9-10時」→ availability_check（9:00〜10:00として抽出）\n   - 例：「明日の午前9時から会議を追加して」→ add_event（日時+予定内容）\n   - 例：「来週月曜日の14時から打ち合わせ」→ add_event（日時+予定内容）\n"
                 "5. 自然言語の時間表現は必ず具体的な時刻範囲・日付範囲に変換してください。\n"
                 "   例：'18時以降'→'18:00〜23:59'、'終日'→'00:00〜23:59'、'今日'→'現在時刻〜23:59'、'今日から1週間'→'今日〜7日後の23:59'。\n"
                 "6. 箇条書き（・や-）、改行、スペース、句読点で区切られている場合も、すべての日時・時間帯を抽出してください。\n"
@@ -185,6 +185,31 @@ class AIService:
         pattern2 = r'[・\-]\s*(\d{1,2})/(\d{1,2})\s*([0-9]{1,2})-([0-9]{1,2})時'
         matches2 = re.findall(pattern2, original_text)
         for m in matches2:
+            month, day, sh, eh = m
+            year = now.year
+            try:
+                dt = datetime(year, int(month), int(day))
+                if dt < now:
+                    dt = datetime(year+1, int(month), int(day))
+            except Exception:
+                continue
+            date_str = dt.strftime('%Y-%m-%d')
+            start_time = f"{int(sh):02d}:00"
+            end_time = f"{int(eh):02d}:00"
+            if not any(d.get('date') == date_str and d.get('time') == start_time and d.get('end_time') == end_time for d in new_dates):
+                new_date_entry = {
+                    'date': date_str,
+                    'time': start_time,
+                    'end_time': end_time,
+                    'description': ''
+                }
+                if parsed.get('task_type') == 'add_event':
+                    new_date_entry['title'] = f"予定（{date_str} {start_time}〜{end_time}）"
+                new_dates.append(new_date_entry)
+        # 追加: 日付+「9-10時」形式の抽出
+        pattern3 = r'(\d{1,2})/(\d{1,2})\s*([0-9]{1,2})-([0-9]{1,2})時'
+        matches3 = re.findall(pattern3, original_text)
+        for m in matches3:
             month, day, sh, eh = m
             year = now.year
             try:
