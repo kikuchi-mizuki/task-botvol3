@@ -107,7 +107,7 @@ class LineBotHandler:
             if pending_json:
                 self.db_helper.delete_pending_event(line_user_id)
                 return TextSendMessage(text="予定追加をキャンセルしました。")
-
+        
         try:
             # 環境変数が設定されていない場合の処理
             if not Config.LINE_CHANNEL_ACCESS_TOKEN or not Config.LINE_CHANNEL_SECRET:

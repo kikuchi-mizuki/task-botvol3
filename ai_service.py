@@ -30,7 +30,7 @@ class AIService:
                 "1. 複数の日時がある場合は全て抽出\n"
                 "2. 日本語の日付表現（今日、明日、来週月曜日など）を具体的な日付に変換\n"
                 "3. 時間表現（午前9時、14時30分など）を24時間形式に変換\n"
-                "4. タスクの種類を判定：\n   - 日時のみの場合は「availability_check」（空き時間確認）\n   - 日時+タイトルの場合は「add_event」（予定追加）\n"
+                "4. **タスクの種類を判定（重要）**:\n   - 日時のみの場合は「availability_check」（空き時間確認）\n   - 日時+タイトル/予定内容の場合は「add_event」（予定追加）\n   - 例：「7/8 18時以降」→ availability_check（日時のみ）\n   - 例：「7/10 18:00〜20:00」→ availability_check（日時のみ）\n   - 例：「明日の午前9時から会議を追加して」→ add_event（日時+予定内容）\n   - 例：「来週月曜日の14時から打ち合わせ」→ add_event（日時+予定内容）\n"
                 "5. 自然言語の時間表現は必ず具体的な時刻範囲・日付範囲に変換してください。\n"
                 "   例：'18時以降'→'18:00〜23:59'、'終日'→'00:00〜23:59'、'今日'→'現在時刻〜23:59'、'今日から1週間'→'今日〜7日後の23:59'。\n"
                 "6. 1行に複数の予定が含まれる場合や、改行・スペース・句読点で区切られている場合も、すべての予定を抽出してください。\n"
@@ -46,6 +46,10 @@ class AIService:
                 "14. 説明はタイトル以降の文や\"の件\"\"について\"などを優先して抽出してください。\n"
                 "\n"
                 "【出力例】\n"
+                "空き時間確認の場合:\n"
+                "{\n  \"task_type\": \"availability_check\",\n  \"dates\": [\n    {\n      \"date\": \"2025-07-08\",\n      \"time\": \"18:00\",\n      \"end_time\": \"23:59\"\n    }\n  ]\n}\n"
+                "\n"
+                "予定追加の場合:\n"
                 "{\n  \"task_type\": \"add_event\",\n  \"dates\": [\n    {\n      \"date\": \"2025-07-14\",\n      \"time\": \"20:00\",\n      \"end_time\": \"20:30\",\n      \"title\": \"田中さんMTG\",\n      \"description\": \"新作アプリの件\"\n    }\n  ]\n}\n"
             )
             response = self.client.chat.completions.create(
@@ -131,11 +135,12 @@ class AIService:
             # end_timeが空
             elif d.get('time') and not d.get('end_time'):
                 d['end_time'] = '23:59'
-            # title補完
+            # title補完（空き時間確認の場合はタイトルを生成しない）
             if not d.get('title') or d['title'] == '':
                 if d.get('description'):
                     d['title'] = d['description']
-                else:
+                elif parsed.get('task_type') == 'add_event':
+                    # 予定追加の場合のみタイトルを生成
                     t = d.get('time', '')
                     e = d.get('end_time', '')
                     d['title'] = f"予定（{d.get('date', '')} {t}〜{e}）"
@@ -167,13 +172,16 @@ class AIService:
             end_time = f"{int(eh):02d}:{int(em):02d}"
             # 既存に同じ枠がなければ追加
             if not any(d.get('date') == date_str and d.get('time') == start_time and d.get('end_time') == end_time for d in new_dates):
-                new_dates.append({
+                new_date_entry = {
                     'date': date_str,
                     'time': start_time,
                     'end_time': end_time,
-                    'title': f"予定（{date_str} {start_time}〜{end_time}）",
                     'description': ''
-                })
+                }
+                # 予定追加の場合のみタイトルを生成
+                if parsed.get('task_type') == 'add_event':
+                    new_date_entry['title'] = f"予定（{date_str} {start_time}〜{end_time}）"
+                new_dates.append(new_date_entry)
         parsed['dates'] = new_dates
         return parsed
     

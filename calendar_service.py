@@ -33,9 +33,12 @@ class GoogleCalendarService:
         if os.path.exists('token.pickle'):
             with open('token.pickle', 'rb') as token:
                 self.creds = pickle.load(token)
-        # 有効な認証情報がない場合はWebフローで認証する（run_local_serverは呼ばない）
-        if self.creds and self.creds.expired and self.creds.refresh_token:
-            self.creds.refresh(Request())
+            # 有効な認証情報がない場合はWebフローで認証する（run_local_serverは呼ばない）
+            if self.creds and self.creds.expired and self.creds.refresh_token:
+                self.creds.refresh(Request())
+        else:
+            self.creds = None
+        
         if self.creds:
             self.service = build('calendar', 'v3', credentials=self.creds)
         else:
@@ -312,7 +315,7 @@ class GoogleCalendarService:
                     'start': current_time.strftime('%H:%M'),
                     'end': end_dt.strftime('%H:%M')
                 })
-            return free_slots
+            return free_slots 
         except Exception as e:
             logger.error(f"空き時間検索エラー: {e}")
             return [] 
