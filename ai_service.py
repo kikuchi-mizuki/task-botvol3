@@ -103,26 +103,31 @@ class AIService:
         import re
         jst = pytz.timezone('Asia/Tokyo')
         now = datetime.now(jst)
+        logger = logging.getLogger("ai_service")
         print(f"[DEBUG] _supplement_times開始: parsed={parsed}")
         print(f"[DEBUG] 元テキスト: {original_text}")
         if not parsed or 'dates' not in parsed:
             print(f"[DEBUG] datesが存在しない: {parsed}")
             return parsed
-        # --- 既存AI抽出の補完処理 ---
         allday_dates = set()
         new_dates = []
         for d in parsed['dates']:
             print(f"[DEBUG] datesループ: {d}")
             phrase = d.get('description', '') or original_text
+            # まず範囲表現（9-10時、9:00-10:00など）を優先して補完
+            range_match = re.search(r'(\d{1,2})[\-〜~](\d{1,2})時', phrase)
+            if range_match:
+                d['time'] = f"{int(range_match.group(1)):02d}:00"
+                d['end_time'] = f"{int(range_match.group(2)):02d}:00"
             # 終日
-            if (not d.get('time') and not d.get('end_time')) or re.search(r'終日', phrase):
+            elif (not d.get('time') and not d.get('end_time')) or re.search(r'終日', phrase):
                 d['time'] = '00:00'
                 d['end_time'] = '23:59'
                 if d.get('date') in allday_dates:
                     print(f"[DEBUG] 同じ日付の終日予定はスキップ: {d.get('date')}")
-                    continue  # 同じ日付の終日予定は1件だけ
+                    continue
                 allday_dates.add(d.get('date'))
-            # 18時以降
+            # 18時以降（範囲表現より後に判定）
             elif re.search(r'(\d{1,2})時以降', phrase):
                 m = re.search(r'(\d{1,2})時以降', phrase)
                 if m:
@@ -151,12 +156,11 @@ class AIService:
             # end_timeが空
             elif d.get('time') and not d.get('end_time'):
                 d['end_time'] = '23:59'
-            # title補完（空き時間確認の場合はタイトルを生成しない）
+            # title補完
             if not d.get('title') or d['title'] == '':
                 if d.get('description'):
                     d['title'] = d['description']
                 elif parsed.get('task_type') == 'add_event':
-                    # 予定追加の場合のみタイトルを生成
                     t = d.get('time', '')
                     e = d.get('end_time', '')
                     d['title'] = f"予定（{d.get('date', '')} {t}〜{e}）"
