@@ -20,6 +20,7 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from db import DBHelper
 from werkzeug.middleware.proxy_fix import ProxyFix
+from ai_service import AIService
 
 # ログ設定
 logger = logging.getLogger(__name__)
@@ -278,6 +279,95 @@ def oauth2callback():
         import traceback
         traceback.print_exc()
         return make_response(f"OAuth2コールバックエラー: {e}", 400)
+
+@app.route('/debug/ai_test', methods=['GET', 'POST'])
+def debug_ai_test():
+    """AI抽出機能のデバッグ用エンドポイント"""
+    from flask import render_template_string, request, jsonify
+    
+    if request.method == 'POST':
+        try:
+            text = request.form.get('text', '')
+            if not text:
+                return jsonify({"error": "テキストが入力されていません"})
+            
+            # AIサービスでテスト
+            ai_service = AIService()
+            result = ai_service.extract_dates_and_times(text)
+            
+            return jsonify({
+                "input": text,
+                "result": result,
+                "success": True
+            })
+            
+        except Exception as e:
+            return jsonify({
+                "error": str(e),
+                "success": False
+            })
+    
+    # GETリクエストの場合はテストフォームを表示
+    test_form = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>AI抽出テスト</title>
+        <meta charset="utf-8">
+        <style>
+            body { font-family: Arial, sans-serif; margin: 40px; }
+            .container { max-width: 600px; margin: 0 auto; }
+            textarea { width: 100%; height: 100px; padding: 10px; margin: 10px 0; }
+            button { background: #007bff; color: white; padding: 10px 20px; border: none; cursor: pointer; }
+            .result { background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 5px; }
+            pre { white-space: pre-wrap; word-wrap: break-word; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>AI抽出機能テスト</h2>
+            <form id="testForm">
+                <label for="text">テストテキスト:</label><br>
+                <textarea id="text" name="text" placeholder="例: ・7/10 9-10時&#10;・7/11 9-10時"></textarea><br>
+                <button type="submit">テスト実行</button>
+            </form>
+            <div id="result" class="result" style="display: none;">
+                <h3>結果:</h3>
+                <pre id="resultContent"></pre>
+            </div>
+        </div>
+        
+        <script>
+        document.getElementById('testForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const text = document.getElementById('text').value;
+            const resultDiv = document.getElementById('result');
+            const resultContent = document.getElementById('resultContent');
+            
+            resultContent.textContent = '処理中...';
+            resultDiv.style.display = 'block';
+            
+            fetch('/debug/ai_test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'text=' + encodeURIComponent(text)
+            })
+            .then(response => response.json())
+            .then(data => {
+                resultContent.textContent = JSON.stringify(data, null, 2);
+            })
+            .catch(error => {
+                resultContent.textContent = 'エラー: ' + error;
+            });
+        });
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(test_form)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
