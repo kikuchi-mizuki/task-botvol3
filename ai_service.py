@@ -6,6 +6,15 @@ import json
 from config import Config
 import calendar
 import pytz
+import logging
+
+logger = logging.getLogger("ai_service")
+logger.setLevel(logging.INFO)
+if not logger.hasHandlers():
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 class AIService:
     def __init__(self):
@@ -69,7 +78,7 @@ class AIService:
                 temperature=0.1
             )
             result = response.choices[0].message.content
-            print(f"[DEBUG] AI生レスポンス: {result}")
+            logger.info(f"[DEBUG] AI生レスポンス: {result}")
             parsed = self._parse_ai_response(result)
             return self._supplement_times(parsed, text)
             
