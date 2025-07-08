@@ -98,7 +98,6 @@ class AIService:
             return {"error": f"JSONパースエラー: {str(e)}"}
     
     def _supplement_times(self, parsed, original_text):
-        """AIの出力でtimeやend_timeが空の場合に自然言語表現や状況に応じて自動補完する。titleが空の場合はdescriptionや日付・時刻から補完する。さらに正規表現で漏れた枠も補完する。"""
         from datetime import datetime, timedelta
         import re
         jst = pytz.timezone('Asia/Tokyo')
@@ -114,47 +113,47 @@ class AIService:
         for d in parsed['dates']:
             print(f"[DEBUG] datesループ: {d}")
             phrase = d.get('description', '') or original_text
-            # まず範囲表現（9-10時、9:00-10:00など）を優先して補完
+            # まず範囲表現（9-10時、9:00-10:00など）
             range_match = re.search(r'(\d{1,2})[\-〜~](\d{1,2})時', phrase)
             if range_match:
                 d['time'] = f"{int(range_match.group(1)):02d}:00"
                 d['end_time'] = f"{int(range_match.group(2)):02d}:00"
+            # 18時以降
+            if (not d.get('time') or not d.get('end_time')) and re.search(r'(\d{1,2})時以降', phrase):
+                m = re.search(r'(\d{1,2})時以降', phrase)
+                if m:
+                    d['time'] = f"{int(m.group(1)):02d}:00"
+                    d['end_time'] = '23:59'
             # 終日
-            elif (not d.get('time') and not d.get('end_time')) or re.search(r'終日', phrase):
+            if (not d.get('time') and not d.get('end_time')) or re.search(r'終日', phrase):
                 d['time'] = '00:00'
                 d['end_time'] = '23:59'
                 if d.get('date') in allday_dates:
                     print(f"[DEBUG] 同じ日付の終日予定はスキップ: {d.get('date')}")
                     continue
                 allday_dates.add(d.get('date'))
-            # 18時以降（範囲表現より後に判定）
-            elif re.search(r'(\d{1,2})時以降', phrase):
-                m = re.search(r'(\d{1,2})時以降', phrase)
-                if m:
-                    d['time'] = f"{int(m.group(1)):02d}:00"
-                    d['end_time'] = '23:59'
             # 明日
-            elif re.search(r'明日', phrase):
+            if re.search(r'明日', phrase):
                 d['date'] = (now + timedelta(days=1)).strftime('%Y-%m-%d')
                 if not d.get('time'):
                     d['time'] = '08:00'
                 if not d.get('end_time'):
                     d['end_time'] = '22:00'
             # 今日
-            elif re.search(r'今日', phrase):
+            if re.search(r'今日', phrase):
                 d['date'] = now.strftime('%Y-%m-%d')
                 if not d.get('time'):
                     d['time'] = now.strftime('%H:%M')
                 if not d.get('end_time'):
                     d['end_time'] = '23:59'
             # 今日から1週間
-            elif re.search(r'今日から1週間', phrase):
+            if re.search(r'今日から1週間', phrase):
                 d['date'] = now.strftime('%Y-%m-%d')
                 d['end_date'] = (now + timedelta(days=6)).strftime('%Y-%m-%d')
                 d['time'] = '00:00'
                 d['end_time'] = '23:59'
             # end_timeが空
-            elif d.get('time') and not d.get('end_time'):
+            if d.get('time') and not d.get('end_time'):
                 d['end_time'] = '23:59'
             # title補完
             if not d.get('title') or d['title'] == '':
