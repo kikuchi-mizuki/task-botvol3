@@ -426,27 +426,44 @@ class AIService:
         ]
         日付ごとに空き時間をまとめて返す（重複枠・重複時間帯は除外）
         """
+        print(f"[DEBUG] format_free_slots_response_by_frame開始")
+        print(f"[DEBUG] 入力データ: {free_slots_by_frame}")
+        
         jst = pytz.timezone('Asia/Tokyo')
         if not free_slots_by_frame:
+            print(f"[DEBUG] free_slots_by_frameが空")
             return "✅空き時間はありませんでした。"
+            
         # 日付ごとに空き時間をまとめる
         date_slots = {}
-        for frame in free_slots_by_frame:
+        for i, frame in enumerate(free_slots_by_frame):
+            print(f"[DEBUG] フレーム{i+1}処理: {frame}")
             date = frame['date']
             slots = frame['free_slots']
+            print(f"[DEBUG] フレーム{i+1}の空き時間: {slots}")
+            
             if date not in date_slots:
                 date_slots[date] = set()
             for slot in slots:
                 date_slots[date].add((slot['start'], slot['end']))
+                print(f"[DEBUG] 日付{date}に空き時間追加: {slot['start']}〜{slot['end']}")
+                
+        print(f"[DEBUG] 日付ごとの空き時間: {date_slots}")
+        
         response = "✅以下が空き時間です！\n\n"
         for date in sorted(date_slots.keys()):
             dt = jst.localize(datetime.strptime(date, "%Y-%m-%d"))
             weekday = "月火水木金土日"[dt.weekday()]
             response += f"{dt.month}/{dt.day}（{weekday}）\n"
+            
             slots = sorted(list(date_slots[date]))
+            print(f"[DEBUG] 日付{date}の最終空き時間: {slots}")
+            
             if not slots:
                 response += "・空き時間なし\n"
             else:
                 for start, end in slots:
                     response += f"・{start}〜{end}\n"
+                    
+        print(f"[DEBUG] 最終レスポンス: {response}")
         return response 

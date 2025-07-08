@@ -265,59 +265,111 @@ class GoogleCalendarService:
     def find_free_slots_for_day(self, start_dt, end_dt, events):
         """指定枠(start_dt, end_dt)内で既存予定を除いた空き時間帯リストを返す"""
         try:
+            logger.info(f"[DEBUG] find_free_slots_for_day開始")
+            logger.info(f"[DEBUG] 検索枠: {start_dt} 〜 {end_dt}")
+            logger.info(f"[DEBUG] 既存予定数: {len(events) if events else 0}")
+            
             jst = pytz.timezone('Asia/Tokyo')
             if start_dt.tzinfo is None:
                 start_dt = jst.localize(start_dt)
             if end_dt.tzinfo is None:
                 end_dt = jst.localize(end_dt)
+                
             # eventsがNoneや空の場合は必ず再取得
             if events is None or len(events) == 0:
+                logger.info(f"[DEBUG] 既存予定なし、全日空き時間として返す")
                 return [{
                     'start': start_dt.strftime('%H:%M'),
                     'end': end_dt.strftime('%H:%M')
                 }]
+                
             # 既存予定を時間順にbusy_timesへ
             busy_times = []
-            for event in events:
+            logger.info(f"[DEBUG] 既存予定の処理開始")
+            
+            for i, event in enumerate(events):
+                logger.info(f"[DEBUG] 予定{i+1}: {event}")
+                
                 start = event['start'] if isinstance(event['start'], str) else event['start'].get('dateTime', event['start'].get('date'))
                 end = event['end'] if isinstance(event['end'], str) else event['end'].get('dateTime', event['end'].get('date'))
+                
+                logger.info(f"[DEBUG] 予定{i+1}の時間: {start} 〜 {end}")
+                
                 if 'T' in start:  # dateTime形式
                     start_ev = datetime.fromisoformat(start.replace('Z', '+00:00'))
                     end_ev = datetime.fromisoformat(end.replace('Z', '+00:00'))
+                    
+                    logger.info(f"[DEBUG] 予定{i+1}のパース後: {start_ev} 〜 {end_ev}")
+                    
                     # 枠外の予定は除外
                     if end_ev <= start_dt or start_ev >= end_dt:
+                        logger.info(f"[DEBUG] 予定{i+1}は枠外のため除外")
                         continue
-                    busy_times.append((max(start_ev, start_dt), min(end_ev, end_dt)))
+                        
+                    busy_start = max(start_ev, start_dt)
+                    busy_end = min(end_ev, end_dt)
+                    busy_times.append((busy_start, busy_end))
+                    logger.info(f"[DEBUG] 予定{i+1}をbusy_timesに追加: {busy_start} 〜 {busy_end}")
+                    
                 else:  # date型（終日予定）
                     allday_start = jst.localize(datetime.combine(datetime.strptime(start, "%Y-%m-%d"), datetime.min.time()))
                     allday_end = allday_start + timedelta(days=1)
+                    
+                    logger.info(f"[DEBUG] 予定{i+1}は終日予定: {allday_start} 〜 {allday_end}")
+                    
                     if allday_end <= start_dt or allday_start >= end_dt:
+                        logger.info(f"[DEBUG] 予定{i+1}は枠外のため除外")
                         continue
-                    busy_times.append((max(allday_start, start_dt), min(allday_end, end_dt)))
+                        
+                    busy_start = max(allday_start, start_dt)
+                    busy_end = min(allday_end, end_dt)
+                    busy_times.append((busy_start, busy_end))
+                    logger.info(f"[DEBUG] 予定{i+1}をbusy_timesに追加: {busy_start} 〜 {busy_end}")
+            
+            logger.info(f"[DEBUG] busy_times: {busy_times}")
+            
             # 空き時間を計算
             free_slots = []
             if not busy_times:
+                logger.info(f"[DEBUG] busy_timesが空、全日空き時間として返す")
                 free_slots.append({
                     'start': start_dt.strftime('%H:%M'),
                     'end': end_dt.strftime('%H:%M')
                 })
                 return free_slots
+                
             # busy_timesを開始時刻順に明示的にソート
             busy_times = sorted(busy_times, key=lambda x: x[0])
+            logger.info(f"[DEBUG] ソート後のbusy_times: {busy_times}")
+            
             current_time = start_dt
-            for busy_start, busy_end in busy_times:
+            logger.info(f"[DEBUG] 空き時間計算開始、current_time: {current_time}")
+            
+            for i, (busy_start, busy_end) in enumerate(busy_times):
+                logger.info(f"[DEBUG] busy_times[{i}]処理: {busy_start} 〜 {busy_end}")
+                
                 if current_time < busy_start:
-                    free_slots.append({
+                    free_slot = {
                         'start': current_time.strftime('%H:%M'),
                         'end': busy_start.strftime('%H:%M')
-                    })
+                    }
+                    free_slots.append(free_slot)
+                    logger.info(f"[DEBUG] 空き時間を追加: {free_slot}")
+                    
                 current_time = max(current_time, busy_end)
+                logger.info(f"[DEBUG] current_time更新: {current_time}")
+                
             if current_time < end_dt:
-                free_slots.append({
+                free_slot = {
                     'start': current_time.strftime('%H:%M'),
                     'end': end_dt.strftime('%H:%M')
-                })
+                }
+                free_slots.append(free_slot)
+                logger.info(f"[DEBUG] 最後の空き時間を追加: {free_slot}")
+                
+            logger.info(f"[DEBUG] 最終的な空き時間: {free_slots}")
             return free_slots 
+            
         except Exception as e:
             logger.error(f"空き時間検索エラー: {e}")
             return [] 
