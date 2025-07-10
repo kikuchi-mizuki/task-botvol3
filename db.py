@@ -44,6 +44,7 @@ class DBHelper:
     # --- users ---
     def save_google_token(self, line_user_id, google_token_bytes):
         now = datetime.utcnow().isoformat()
+        print(f"[DEBUG] save_google_token: line_user_id={line_user_id}, token_length={len(google_token_bytes) if google_token_bytes else 0}, time={now}")
         c = self.conn.cursor()
         c.execute('''
             INSERT INTO users (line_user_id, google_token, created_at, updated_at)
@@ -56,6 +57,7 @@ class DBHelper:
         c = self.conn.cursor()
         c.execute('SELECT google_token FROM users WHERE line_user_id=?', (line_user_id,))
         row = c.fetchone()
+        print(f"[DEBUG] get_google_token: line_user_id={line_user_id}, token_found={row is not None}, token_length={len(row[0]) if row and row[0] else 0}")
         return row[0] if row else None
 
     # --- onetimes ---

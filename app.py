@@ -399,6 +399,21 @@ def api_send_daily_agenda():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/api/debug_users', methods=['GET'])
+def api_debug_users():
+    import os
+    from flask import request, jsonify
+    secret_token = os.environ.get('DAILY_AGENDA_SECRET_TOKEN')
+    req_token = request.args.get('token')
+    if not secret_token or req_token != secret_token:
+        return jsonify({'status': 'error', 'message': 'Invalid or missing token'}), 403
+    from db import DBHelper
+    db = DBHelper()
+    c = db.conn.cursor()
+    c.execute('SELECT line_user_id, LENGTH(google_token), created_at, updated_at FROM users')
+    rows = c.fetchall()
+    return jsonify({'users': rows})
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     logger.info("LINE Calendar Bot を起動しています...")
