@@ -1,0 +1,14 @@
+name: Trigger Daily Agenda on Railway
+
+on:
+  schedule:
+    - cron: '0 15 * * *'  # JST 0:00 = UTC 15:00
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Railway API
+        run: |
+          curl -X POST "${{ secrets.RAILWAY_DAILY_AGENDA_URL }}?token=${{ secrets.DAILY_AGENDA_SECRET_TOKEN }}" 
