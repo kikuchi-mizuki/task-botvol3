@@ -28,10 +28,12 @@ def send_daily_agenda():
     line_bot_api = LineBotApi(Config.LINE_CHANNEL_ACCESS_TOKEN)
     today = datetime.now().date()
     user_ids = db.get_all_user_ids()  # 認証済みユーザーのみ返すようにDBHelperを調整
+    print(f"[DEBUG] 送信対象ユーザー: {user_ids}")
 
     for user_id in user_ids:
         events_info = calendar_service.get_events_for_dates([today])
         message = format_rich_agenda(events_info)
+        print(f"[DEBUG] 送信先: {user_id}, メッセージ: {message}")
         line_bot_api.push_message(user_id, TextSendMessage(text=message))
 
 if __name__ == "__main__":
