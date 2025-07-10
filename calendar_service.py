@@ -195,13 +195,17 @@ class GoogleCalendarService:
             return False, f"エラーが発生しました: {str(e)}", None
     
     def get_events_for_dates(self, dates, line_user_id=None):
-        """指定された日付のイベントを取得します（ユーザーごとの認証トークン対応）"""
+        """指定された日付のイベントを取得します（ユーザーごとの認証トークン対応、JST日付で正確に抽出）"""
+        import pytz
         events_info = []
+        jst = pytz.timezone('Asia/Tokyo')
         for date in dates:
-            start_of_day = datetime.combine(date, datetime.min.time())
-            end_of_day = start_of_day + timedelta(days=1)
+            # JST 0:00〜翌日0:00をUTCに変換
+            start_of_day_jst = jst.localize(datetime.combine(date, datetime.min.time()))
+            end_of_day_jst = start_of_day_jst + timedelta(days=1)
+            start_of_day_utc = start_of_day_jst.astimezone(pytz.UTC)
+            end_of_day_utc = end_of_day_jst.astimezone(pytz.UTC)
             try:
-                # line_user_idが指定されていれば、そのユーザーの認証トークンでカレンダーサービスを取得
                 service = self._get_calendar_service(line_user_id) if line_user_id else self.service
                 if not service:
                     events_info.append({
@@ -212,8 +216,8 @@ class GoogleCalendarService:
                     continue
                 events_result = service.events().list(
                     calendarId=Config.GOOGLE_CALENDAR_ID,
-                    timeMin=start_of_day.isoformat() + 'Z',
-                    timeMax=end_of_day.isoformat() + 'Z',
+                    timeMin=start_of_day_utc.isoformat(),
+                    timeMax=end_of_day_utc.isoformat(),
                     singleEvents=True,
                     orderBy='startTime'
                 ).execute()
