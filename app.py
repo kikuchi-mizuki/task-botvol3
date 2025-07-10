@@ -21,6 +21,7 @@ from googleapiclient.discovery import build
 from db import DBHelper
 from werkzeug.middleware.proxy_fix import ProxyFix
 from ai_service import AIService
+from send_daily_agenda import send_daily_agenda
 
 # ログ設定
 logger = logging.getLogger(__name__)
@@ -383,6 +384,20 @@ def debug_ai_test():
     </html>
     """
     return render_template_string(test_form)
+
+@app.route('/api/send_daily_agenda', methods=['POST'])
+def api_send_daily_agenda():
+    import os
+    from flask import request, jsonify
+    secret_token = os.environ.get('DAILY_AGENDA_SECRET_TOKEN')
+    req_token = request.args.get('token')
+    if not secret_token or req_token != secret_token:
+        return jsonify({'status': 'error', 'message': 'Invalid or missing token'}), 403
+    try:
+        send_daily_agenda()
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
