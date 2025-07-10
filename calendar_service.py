@@ -46,32 +46,65 @@ class GoogleCalendarService:
     
     def _get_user_credentials(self, line_user_id):
         """ユーザーの認証トークンをDBから取得"""
-        token_data = self.db_helper.get_google_token(line_user_id)
-        if not token_data:
-            return None
-        
         try:
-            credentials = pickle.loads(token_data)
+            print(f"[DEBUG] _get_user_credentials開始: line_user_id={line_user_id}")
+            token_data = self.db_helper.get_google_token(line_user_id)
+            print(f"[DEBUG] DBから取得したトークンデータ: {token_data is not None}")
             
-            # トークンの有効期限をチェック
-            if credentials and credentials.expired and credentials.refresh_token:
-                credentials.refresh(Request())
-                # 更新されたトークンをDBに保存
-                updated_token_data = pickle.dumps(credentials)
-                self.db_helper.save_google_token(line_user_id, updated_token_data)
+            if not token_data:
+                print(f"[DEBUG] トークンデータが取得できませんでした")
+                return None
             
-            return credentials
+            try:
+                print(f"[DEBUG] トークンデータのデシリアライズ開始")
+                credentials = pickle.loads(token_data)
+                print(f"[DEBUG] トークンデータのデシリアライズ完了: credentials={credentials is not None}")
+                
+                # トークンの有効期限をチェック
+                if credentials and credentials.expired and credentials.refresh_token:
+                    print(f"[DEBUG] トークンのリフレッシュ開始")
+                    credentials.refresh(Request())
+                    print(f"[DEBUG] トークンのリフレッシュ完了")
+                    # 更新されたトークンをDBに保存
+                    updated_token_data = pickle.dumps(credentials)
+                    self.db_helper.save_google_token(line_user_id, updated_token_data)
+                    print(f"[DEBUG] 更新されたトークンをDBに保存完了")
+                
+                return credentials
+                
+            except Exception as e:
+                print(f"[DEBUG] トークンの読み込みエラー: {e}")
+                import traceback
+                traceback.print_exc()
+                return None
+                
         except Exception as e:
-            print(f"トークンの読み込みエラー: {e}")
+            print(f"[DEBUG] _get_user_credentialsで例外発生: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def _get_calendar_service(self, line_user_id):
         """ユーザーごとのGoogle Calendarサービスを取得"""
-        credentials = self._get_user_credentials(line_user_id)
-        if not credentials:
-            raise Exception("ユーザーの認証トークンが見つかりません。認証を完了してください。")
-        
-        return build('calendar', 'v3', credentials=credentials)
+        try:
+            print(f"[DEBUG] _get_calendar_service開始: line_user_id={line_user_id}")
+            credentials = self._get_user_credentials(line_user_id)
+            print(f"[DEBUG] 認証情報取得結果: credentials={credentials is not None}")
+            
+            if not credentials:
+                print(f"[DEBUG] 認証情報が取得できませんでした")
+                raise Exception("ユーザーの認証トークンが見つかりません。認証を完了してください。")
+            
+            print(f"[DEBUG] Google Calendar APIサービス構築開始")
+            service = build('calendar', 'v3', credentials=credentials)
+            print(f"[DEBUG] Google Calendar APIサービス構築完了")
+            return service
+            
+        except Exception as e:
+            print(f"[DEBUG] _get_calendar_serviceで例外発生: {e}")
+            import traceback
+            traceback.print_exc()
+            raise e
     
     def check_availability(self, start_time, end_time):
         """指定された時間帯の空き時間を確認します"""
@@ -219,18 +252,28 @@ class GoogleCalendarService:
     def get_events_for_time_range(self, start_time, end_time, line_user_id):
         """指定された時間範囲のイベントを取得します"""
         try:
+            print(f"[DEBUG] get_events_for_time_range開始")
+            print(f"[DEBUG] 入力: start_time={start_time}, end_time={end_time}, line_user_id={line_user_id}")
+            
             jst = pytz.timezone('Asia/Tokyo')
             # タイムゾーンなしならJSTを付与
             if start_time.tzinfo is None:
                 start_time = jst.localize(start_time)
             if end_time.tzinfo is None:
                 end_time = jst.localize(end_time)
+            
+            print(f"[DEBUG] タイムゾーン調整後: start_time={start_time}, end_time={end_time}")
+            
             service = self._get_calendar_service(line_user_id)
+            print(f"[DEBUG] カレンダーサービス取得完了")
+            
             # タイムゾーンをUTCに変換
             utc_start = start_time.astimezone(pytz.UTC)
             utc_end = end_time.astimezone(pytz.UTC)
             
-            logger.info(f"[DEBUG] Google Calendar APIリクエスト: calendarId={Config.GOOGLE_CALENDAR_ID}, timeMin={utc_start.isoformat()}, timeMax={utc_end.isoformat()}")
+            print(f"[DEBUG] UTC変換後: utc_start={utc_start}, utc_end={utc_end}")
+            print(f"[DEBUG] Google Calendar APIリクエスト: calendarId={Config.GOOGLE_CALENDAR_ID}, timeMin={utc_start.isoformat()}, timeMax={utc_end.isoformat()}")
+            
             events_result = service.events().list(
                 calendarId=Config.GOOGLE_CALENDAR_ID,  # 'primary'（各ユーザーのメインカレンダー）
                 timeMin=utc_start.isoformat(),
@@ -238,27 +281,38 @@ class GoogleCalendarService:
                 singleEvents=True,
                 orderBy='startTime'
             ).execute()
-            logger.info(f"[DEBUG] Google Calendar APIレスポンス: {events_result}")
+            
+            print(f"[DEBUG] Google Calendar APIレスポンス: {events_result}")
             
             events = events_result.get('items', [])
+            print(f"[DEBUG] 取得イベント数: {len(events) if events else 0}")
             
             if not events:
+                print(f"[DEBUG] イベントなし、空リストを返す")
                 return []
             
             event_list = []
-            for event in events:
+            for i, event in enumerate(events):
+                print(f"[DEBUG] イベント{i+1}処理: {event}")
                 start = event['start'].get('dateTime', event['start'].get('date'))
                 end = event['end'].get('dateTime', event['end'].get('date'))
                 title = event.get('summary', 'タイトルなし')
-                event_list.append({
+                
+                event_data = {
                     'title': title,
                     'start': start,
                     'end': end
-                })
+                }
+                event_list.append(event_data)
+                print(f"[DEBUG] イベント{i+1}追加: {event_data}")
             
+            print(f"[DEBUG] 最終イベントリスト: {event_list}")
             return event_list
             
         except Exception as e:
+            print(f"[DEBUG] get_events_for_time_rangeで例外発生: {e}")
+            import traceback
+            traceback.print_exc()
             logging.error(f"イベント取得エラー: {e}")
             return []
     

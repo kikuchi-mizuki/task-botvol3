@@ -169,50 +169,106 @@ class LineBotHandler:
     def _handle_availability_check(self, dates_info, line_user_id):
         """空き時間確認を処理します"""
         try:
+            print(f"[DEBUG] _handle_availability_check開始")
+            print(f"[DEBUG] dates_info: {dates_info}")
+            print(f"[DEBUG] line_user_id: {line_user_id}")
+            
             # ユーザーの認証状態をチェック
             if not self._check_user_auth(line_user_id):
+                print(f"[DEBUG] ユーザー認証未完了")
                 return self._send_auth_guide(line_user_id)
             
             if not self.calendar_service:
+                print(f"[DEBUG] カレンダーサービス未初期化")
                 return TextSendMessage(text="Google Calendarサービスが初期化されていません。認証ファイルを確認してください。")
             
             if not self.ai_service:
+                print(f"[DEBUG] AIサービス未初期化")
                 return TextSendMessage(text="AIサービスが初期化されていません。")
             
             if not dates_info:
+                print(f"[DEBUG] dates_infoが空")
                 return TextSendMessage(text="日付を正しく認識できませんでした。\n\n例: 「明日7/7 15:00〜15:30の空き時間を教えて」")
+            
+            print(f"[DEBUG] 空き時間計算開始")
             free_slots_by_frame = []
-            for date_info in dates_info:
+            for i, date_info in enumerate(dates_info):
+                print(f"[DEBUG] 日付{i+1}処理開始: {date_info}")
                 date_str = date_info.get('date')
                 start_time = date_info.get('time')
                 end_time = date_info.get('end_time')
+                
+                print(f"[DEBUG] 日付{i+1}の抽出値: date={date_str}, start_time={start_time}, end_time={end_time}")
+                
                 if date_str and start_time and end_time:
-                    jst = pytz.timezone('Asia/Tokyo')
-                    start_dt = jst.localize(datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M"))
-                    end_dt = jst.localize(datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M"))
-                    # 枠内の予定を取得
-                    events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
-                    # 8:00〜22:00の間で空き時間を返す
-                    day_start = "08:00"
-                    day_end = "22:00"
-                    # 枠の範囲と8:00〜22:00の重なり部分だけを対象にする
-                    slot_start = max(start_time, day_start)
-                    slot_end = min(end_time, day_end)
-                    slot_start_dt = jst.localize(datetime.strptime(f"{date_str} {slot_start}", "%Y-%m-%d %H:%M"))
-                    slot_end_dt = jst.localize(datetime.strptime(f"{date_str} {slot_end}", "%Y-%m-%d %H:%M"))
-                    if slot_start < slot_end:
-                        free_slots = self.calendar_service.find_free_slots_for_day(slot_start_dt, slot_end_dt, events)
-                    else:
-                        free_slots = []
-                    free_slots_by_frame.append({
-                        'date': date_str,
-                        'start_time': slot_start,
-                        'end_time': slot_end,
-                        'free_slots': free_slots
-                    })
+                    try:
+                        jst = pytz.timezone('Asia/Tokyo')
+                        start_dt = jst.localize(datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M"))
+                        end_dt = jst.localize(datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M"))
+                        
+                        print(f"[DEBUG] 日付{i+1}のdatetime: start_dt={start_dt}, end_dt={end_dt}")
+                        
+                        # 枠内の予定を取得
+                        print(f"[DEBUG] 日付{i+1}の予定取得開始")
+                        events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
+                        print(f"[DEBUG] 日付{i+1}の取得予定: {events}")
+                        
+                        # 8:00〜22:00の間で空き時間を返す
+                        day_start = "08:00"
+                        day_end = "22:00"
+                        # 枠の範囲と8:00〜22:00の重なり部分だけを対象にする
+                        slot_start = max(start_time, day_start)
+                        slot_end = min(end_time, day_end)
+                        
+                        print(f"[DEBUG] 日付{i+1}のスロット範囲: slot_start={slot_start}, slot_end={slot_end}")
+                        
+                        slot_start_dt = jst.localize(datetime.strptime(f"{date_str} {slot_start}", "%Y-%m-%d %H:%M"))
+                        slot_end_dt = jst.localize(datetime.strptime(f"{date_str} {slot_end}", "%Y-%m-%d %H:%M"))
+                        
+                        print(f"[DEBUG] 日付{i+1}のスロットdatetime: slot_start_dt={slot_start_dt}, slot_end_dt={slot_end_dt}")
+                        
+                        if slot_start < slot_end:
+                            print(f"[DEBUG] 日付{i+1}の空き時間計算開始")
+                            free_slots = self.calendar_service.find_free_slots_for_day(slot_start_dt, slot_end_dt, events)
+                            print(f"[DEBUG] 日付{i+1}の空き時間結果: {free_slots}")
+                        else:
+                            print(f"[DEBUG] 日付{i+1}のスロット範囲が無効: {slot_start} >= {slot_end}")
+                            free_slots = []
+                        
+                        free_slots_by_frame.append({
+                            'date': date_str,
+                            'start_time': slot_start,
+                            'end_time': slot_end,
+                            'free_slots': free_slots
+                        })
+                        print(f"[DEBUG] 日付{i+1}のfree_slots_by_frame追加完了")
+                        
+                    except Exception as e:
+                        print(f"[DEBUG] 日付{i+1}処理でエラー: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        # エラーが発生しても他の日付は処理を続行
+                        free_slots_by_frame.append({
+                            'date': date_str,
+                            'start_time': start_time,
+                            'end_time': end_time,
+                            'free_slots': []
+                        })
+                else:
+                    print(f"[DEBUG] 日付{i+1}の必須項目が不足: date_str={date_str}, start_time={start_time}, end_time={end_time}")
+            
+            print(f"[DEBUG] 全日付処理完了、free_slots_by_frame: {free_slots_by_frame}")
+            
+            print(f"[DEBUG] format_free_slots_response_by_frame呼び出し")
             response_text = self.ai_service.format_free_slots_response_by_frame(free_slots_by_frame)
+            print(f"[DEBUG] レスポンス生成完了: {response_text}")
+            
             return TextSendMessage(text=response_text)
+            
         except Exception as e:
+            print(f"[DEBUG] _handle_availability_checkで例外発生: {e}")
+            import traceback
+            traceback.print_exc()
             return TextSendMessage(text=f"空き時間確認でエラーが発生しました: {str(e)}")
     
     def _handle_event_addition(self, user_message, line_user_id):
