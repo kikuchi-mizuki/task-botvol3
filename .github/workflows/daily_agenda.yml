@@ -1,0 +1,25 @@
+name: Send Daily Agenda
+
+on:
+  schedule:
+    - cron: '0 15 * * *'  # JST 0:00 = UTC 15:00
+
+jobs:
+  send-agenda:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run daily agenda script
+        run: python send_daily_agenda.py
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          # 必要なら他の環境変数もここに追加 
