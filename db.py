@@ -147,6 +147,13 @@ class DBHelper:
         c.execute('SELECT 1 FROM users WHERE line_user_id = ?', (line_user_id,))
         return c.fetchone() is not None
 
+    def get_all_user_ids(self):
+        """認証済みユーザーのLINEユーザーID一覧を返す"""
+        c = self.conn.cursor()
+        c.execute('SELECT line_user_id FROM users WHERE google_token IS NOT NULL')
+        rows = c.fetchall()
+        return [row[0] for row in rows]
+
     def close(self):
         self.conn.close()
 
