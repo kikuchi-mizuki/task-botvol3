@@ -2,7 +2,7 @@ name: Send Daily Agenda
 
 on:
   schedule:
-    - cron: '0 15 * * *'  # JST 0:00 = UTC 15:00
+    - cron: '0 12 * * *'  # JST 21:00 = UTC 12:00
   workflow_dispatch:
 
 jobs:
