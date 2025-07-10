@@ -264,8 +264,11 @@ def oauth2callback():
             base_url = 'https://' + base_url[len('http://'):]
         flow.redirect_uri = base_url + '/oauth2callback'
         # --- ここまで ---
-        # 認証コードを取得してトークンを交換
-        flow.fetch_token(authorization_response=request.url)
+        # 認証コードを取得してトークンを交換（スコープ警告を無視）
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            flow.fetch_token(authorization_response=request.url)
         credentials = flow.credentials
         # トークンをDBに保存
         token_data = pickle.dumps(credentials)
