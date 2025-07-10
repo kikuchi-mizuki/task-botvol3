@@ -3,6 +3,7 @@ name: Send Daily Agenda
 on:
   schedule:
     - cron: '0 15 * * *'  # JST 0:00 = UTC 15:00
+  workflow_dispatch:
 
 jobs:
   send-agenda:
