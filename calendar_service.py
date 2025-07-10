@@ -194,32 +194,30 @@ class GoogleCalendarService:
             logger.error(f"[ERROR] add_eventで例外発生: {e}")
             return False, f"エラーが発生しました: {str(e)}", None
     
-    def get_events_for_dates(self, dates):
-        """指定された日付のイベントを取得します"""
+    def get_events_for_dates(self, dates, line_user_id=None):
+        """指定された日付のイベントを取得します（ユーザーごとの認証トークン対応）"""
         events_info = []
-        
         for date in dates:
             start_of_day = datetime.combine(date, datetime.min.time())
             end_of_day = start_of_day + timedelta(days=1)
-            
             try:
-                if not self.service:
+                # line_user_idが指定されていれば、そのユーザーの認証トークンでカレンダーサービスを取得
+                service = self._get_calendar_service(line_user_id) if line_user_id else self.service
+                if not service:
                     events_info.append({
                         'date': date.strftime('%Y-%m-%d'),
                         'events': [],
                         'error': 'Google認証が必要です。'
                     })
                     continue
-                events_result = self.service.events().list(
-                    calendarId=Config.GOOGLE_CALENDAR_ID,  # 'primary'（各ユーザーのメインカレンダー）
+                events_result = service.events().list(
+                    calendarId=Config.GOOGLE_CALENDAR_ID,
                     timeMin=start_of_day.isoformat() + 'Z',
                     timeMax=end_of_day.isoformat() + 'Z',
                     singleEvents=True,
                     orderBy='startTime'
                 ).execute()
-                
                 events = events_result.get('items', [])
-                
                 if events:
                     day_events = []
                     for event in events:
@@ -240,13 +238,11 @@ class GoogleCalendarService:
                         'date': date.strftime('%Y-%m-%d'),
                         'events': []
                     })
-                    
             except Exception as e:
                 events_info.append({
                     'date': date.strftime('%Y-%m-%d'),
                     'error': str(e)
                 })
-        
         return events_info
     
     def get_events_for_time_range(self, start_time, end_time, line_user_id):

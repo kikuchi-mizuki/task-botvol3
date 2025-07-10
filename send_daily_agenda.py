@@ -31,7 +31,7 @@ def send_daily_agenda():
     print(f"[DEBUG] 送信対象ユーザー: {user_ids}")
 
     for user_id in user_ids:
-        events_info = calendar_service.get_events_for_dates([today])
+        events_info = calendar_service.get_events_for_dates([today], user_id)
         print(f"[DEBUG] ユーザー: {user_id} の取得した予定: {events_info}")
         message = format_rich_agenda(events_info)
         print(f"[DEBUG] 送信先: {user_id}, メッセージ: {message}")
