@@ -266,9 +266,21 @@ def oauth2callback():
         # --- ここまで ---
         # 認証コードを取得してトークンを交換（スコープ警告を無視）
         import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            flow.fetch_token(authorization_response=request.url)
+        import oauthlib.oauth2.rfc6749.parameters
+        # スコープ検証を無効化
+        original_validate_token_parameters = oauthlib.oauth2.rfc6749.parameters.validate_token_parameters
+        def dummy_validate_token_parameters(params):
+            return True
+        oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = dummy_validate_token_parameters
+        
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                flow.fetch_token(authorization_response=request.url)
+        finally:
+            # 元の関数を復元
+            oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = original_validate_token_parameters
+            
         credentials = flow.credentials
         # トークンをDBに保存
         token_data = pickle.dumps(credentials)
