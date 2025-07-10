@@ -221,6 +221,7 @@ class GoogleCalendarService:
                     singleEvents=True,
                     orderBy='startTime'
                 ).execute()
+                print(f"[DEBUG] Google Calendar APIレスポンス: {events_result}")
                 events = events_result.get('items', [])
                 if events:
                     day_events = []
