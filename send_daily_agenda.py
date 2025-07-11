@@ -25,6 +25,25 @@ def format_rich_agenda(events_info, is_tomorrow=False):
 def send_daily_agenda():
     print(f"[DEBUG] 日次予定送信開始: {datetime.now()}")
     db = DBHelper()
+    # 追加デバッグ: usersテーブル全件ダンプ
+    c = db.conn.cursor()
+    try:
+        c.execute("SELECT 1 FROM information_schema.tables WHERE table_name='users'")
+        if c.fetchone():
+            print('[DEBUG] usersテーブルは存在します')
+        else:
+            print('[DEBUG] usersテーブルは存在しません')
+    except Exception as e:
+        print(f'[DEBUG] usersテーブル存在確認クエリエラー: {e}')
+    try:
+        c.execute('SELECT line_user_id, LENGTH(google_token), created_at, updated_at FROM users')
+        users = c.fetchall()
+        if users:
+            print(f'[DEBUG] usersテーブル全件: {users}')
+        else:
+            print('[DEBUG] usersテーブルは空です')
+    except Exception as e:
+        print(f'[DEBUG] usersテーブル全件取得エラー: {e}')
     calendar_service = GoogleCalendarService()
     line_bot_api = LineBotApi(Config.LINE_CHANNEL_ACCESS_TOKEN)
     tomorrow = datetime.now().date() + timedelta(days=1)
