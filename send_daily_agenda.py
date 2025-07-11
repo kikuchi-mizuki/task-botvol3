@@ -23,19 +23,27 @@ def format_rich_agenda(events_info, is_tomorrow=False):
     return f"{header}\n" + "\n".join(lines) + footer
 
 def send_daily_agenda():
+    print(f"[DEBUG] 日次予定送信開始: {datetime.now()}")
     db = DBHelper()
     calendar_service = GoogleCalendarService()
     line_bot_api = LineBotApi(Config.LINE_CHANNEL_ACCESS_TOKEN)
     tomorrow = datetime.now().date() + timedelta(days=1)
+    print(f"[DEBUG] 明日の日付: {tomorrow}")
     user_ids = db.get_all_user_ids()  # 認証済みユーザーのみ返すようにDBHelperを調整
     print(f"[DEBUG] 送信対象ユーザー: {user_ids}")
 
     for user_id in user_ids:
-        events_info = calendar_service.get_events_for_dates([tomorrow], user_id)
-        print(f"[DEBUG] ユーザー: {user_id} の取得した予定: {events_info}")
-        message = format_rich_agenda(events_info, is_tomorrow=True)
-        print(f"[DEBUG] 送信先: {user_id}, メッセージ: {message}")
-        line_bot_api.push_message(user_id, TextSendMessage(text=message))
+        try:
+            events_info = calendar_service.get_events_for_dates([tomorrow], user_id)
+            print(f"[DEBUG] ユーザー: {user_id} の取得した予定: {events_info}")
+            message = format_rich_agenda(events_info, is_tomorrow=True)
+            print(f"[DEBUG] 送信先: {user_id}, メッセージ: {message}")
+            line_bot_api.push_message(user_id, TextSendMessage(text=message))
+            print(f"[DEBUG] ユーザー {user_id} への送信完了")
+        except Exception as e:
+            print(f"[ERROR] ユーザー {user_id} への送信中にエラー: {e}")
+    
+    print(f"[DEBUG] 日次予定送信完了: {datetime.now()}")
 
 if __name__ == "__main__":
     send_daily_agenda() 

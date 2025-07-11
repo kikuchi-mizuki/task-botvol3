@@ -2,7 +2,7 @@ name: Send Daily Agenda
 
 on:
   schedule:
-    - cron: '0 12 * * *'  # JST 21:00 = UTC 12:00
+    - cron: '0 12 * * *'  # JST 21:00 = UTC 12:00 (毎日UTC 12:00 = JST 21:00)
   workflow_dispatch:
 
 jobs:
@@ -20,7 +20,18 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run daily agenda script
-        run: python send_daily_agenda.py
+        run: |
+          echo "=== 環境変数チェック ==="
+          echo "LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:0:10}..."
+          echo "GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:0:10}..."
+          echo "GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:0:10}..."
+          echo "GOOGLE_REDIRECT_URI: $GOOGLE_REDIRECT_URI"
+          echo "DATABASE_URL: ${DATABASE_URL:0:20}..."
+          echo "=== スクリプト実行 ==="
+          python send_daily_agenda.py
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
-          # 必要なら他の環境変数もここに追加 
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }} 
