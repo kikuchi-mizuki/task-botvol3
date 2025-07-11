@@ -259,8 +259,9 @@ class DBHelper:
                 )
             ''')
             c.execute('''
-                INSERT OR REPLACE INTO oauth_states (state, line_user_id, created_at)
+                INSERT INTO oauth_states (state, line_user_id, created_at)
                 VALUES (%s, %s, %s)
+                ON CONFLICT (state) DO UPDATE SET line_user_id=EXCLUDED.line_user_id, created_at=EXCLUDED.created_at
             ''', (state, line_user_id, now))
         else:
             c.execute('''
