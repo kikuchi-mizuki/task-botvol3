@@ -234,12 +234,12 @@ class DBHelper:
         return c.fetchone() is not None
 
     def get_all_user_ids(self):
-        """認証済みユーザーのLINEユーザーID一覧を返す"""
+        """認証済みユーザーのLINEユーザーID一覧を返す（google_tokenがNULLや空でないユーザーのみ）"""
         c = self.conn.cursor()
         if self.is_postgres:
-            c.execute('SELECT line_user_id FROM users WHERE google_token IS NOT NULL')
+            c.execute('SELECT line_user_id FROM users WHERE google_token IS NOT NULL AND octet_length(google_token) > 0')
         else:
-            c.execute('SELECT line_user_id FROM users WHERE google_token IS NOT NULL')
+            c.execute('SELECT line_user_id FROM users WHERE google_token IS NOT NULL AND length(google_token) > 0')
         rows = c.fetchall()
         return [row[0] for row in rows]
 
@@ -319,4 +319,4 @@ class DBHelper:
             c.execute('DELETE FROM pending_events WHERE line_user_id=%s', (line_user_id,))
         else:
             c.execute('DELETE FROM pending_events WHERE line_user_id=?', (line_user_id,))
-        self.conn.commit() 
+        self.conn.commit()
