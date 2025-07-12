@@ -61,6 +61,18 @@ def send_daily_agenda():
             print(f"[DEBUG] ユーザー {user_id} への送信完了")
         except Exception as e:
             print(f"[ERROR] ユーザー {user_id} への送信中にエラー: {e}")
+            # 認証エラー時はLINEで再認証案内を送信
+            auth_message = (
+                "Googleカレンダー連携の認証が切れています。\n"
+                "下記URLから再認証をお願いします。\n\n"
+                "https://task-bot-production.up.railway.app/onetime_login\n"
+                "（LINEでワンタイムコードを取得し、上記ページで入力してください）"
+            )
+            try:
+                line_bot_api.push_message(user_id, TextSendMessage(text=auth_message))
+                print(f"[DEBUG] ユーザー {user_id} に再認証案内を送信")
+            except Exception as e2:
+                print(f"[ERROR] ユーザー {user_id} への再認証案内送信エラー: {e2}")
     
     print(f"[DEBUG] 日次予定送信完了: {datetime.now()}")
 
