@@ -1,8 +1,8 @@
 name: Send Daily Agenda
 
 on:
-  schedule:
-    - cron: '0 12 * * *'  # JST 21:00 = UTC 12:00 (毎日UTC 12:00 = JST 21:00)
+  # schedule:
+  #   - cron: '0 12 * * *'  # JST 21:00 = UTC 12:00 (毎日UTC 12:00 = JST 21:00)
   workflow_dispatch:
 
 jobs:
