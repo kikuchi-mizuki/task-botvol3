@@ -295,7 +295,7 @@ class DBHelper:
                 INSERT INTO pending_events (line_user_id, event_json, created_at)
                 VALUES (%s, %s, %s)
                 ON CONFLICT(line_user_id) DO UPDATE SET event_json=EXCLUDED.event_json, created_at=EXCLUDED.created_at
-            ''', (line_user_id, PG_BINARY(event_json), now))
+            ''', (line_user_id, event_json, now))
         else:
             c.execute('''
                 INSERT INTO pending_events (line_user_id, event_json, created_at)
