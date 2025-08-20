@@ -9,9 +9,6 @@ from ai_service import AIService
 from config import Config
 from db import DBHelper
 import logging
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 logger = logging.getLogger("line_bot_handler")
 
@@ -21,21 +18,8 @@ class LineBotHandler:
         line_token = Config.LINE_CHANNEL_ACCESS_TOKEN or "dummy_token"
         line_secret = Config.LINE_CHANNEL_SECRET or "dummy_secret"
         
-        # カスタムセッションを作成してSSL接続エラーを防ぐ
-        session = requests.Session()
-        retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        
-        # タイムアウト設定を追加
-        session.timeout = (10, 30)  # (接続タイムアウト, 読み取りタイムアウト)
-        
-        self.line_bot_api = LineBotApi(line_token, session=session)
+        # LINE Bot API クライアント初期化（標準）
+        self.line_bot_api = LineBotApi(line_token)
         self.handler = WebhookHandler(line_secret)
         
         # DBヘルパーの初期化
