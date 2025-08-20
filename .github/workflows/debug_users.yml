@@ -1,0 +1,12 @@
+name: Debug Users Table on Railway
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug-users:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/debug_users
+        run: |
+          curl -X GET "${{ secrets.RAILWAY_DAILY_AGENDA_URL }}/../debug_users?token=${{ secrets.DAILY_AGENDA_SECRET_TOKEN }}" 
