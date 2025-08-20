@@ -48,8 +48,9 @@ class LineBotHandler:
         # ワンタイムコードを生成
         code = self.db_helper.generate_onetime_code(line_user_id)
         
-        # 認証URLを生成（RailwayのURLを使用）
-        base_url = "https://task-bot-production.up.railway.app"  # 実際のRailway URLに変更
+        # 認証URLを生成（環境変数から取得）
+        import os
+        base_url = os.getenv('BASE_URL', 'https://web-production-xxxx.up.railway.app')
         auth_url = f"{base_url}/onetime_login"
         
         message = f"""Google Calendar認証が必要です。
