@@ -218,7 +218,7 @@ def onetime_login():
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
             # リダイレクトURIを環境変数から取得
             import os
-            base_url = os.getenv('BASE_URL', 'https://web-production-7306b.up.railway.app')
+            base_url = os.getenv('BASE_URL', 'https://app.mmms-11.com')
             flow.redirect_uri = base_url + '/oauth2callback'
             auth_url, state = flow.authorization_url(
                 access_type='offline',
@@ -267,7 +267,7 @@ def oauth2callback():
         flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
         # リダイレクトURIを環境変数から取得
         import os
-        base_url = os.getenv('BASE_URL', 'https://web-production-7306b.up.railway.app')
+        base_url = os.getenv('BASE_URL', 'https://app.mmms-11.com')
         flow.redirect_uri = base_url + '/oauth2callback'
         # --- ここまで ---
         # 認証コードを取得してトークンを交換（スコープ警告を無視）
