@@ -216,13 +216,10 @@ def onetime_login():
             # Google OAuth認証フローを開始
             SCOPES = ['https://www.googleapis.com/auth/calendar']
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-            # --- redirect_uri自動判定 ---
-            # Railway本番・ngrok・ローカル全てでhttpsを強制
-            base_url = request.url_root.rstrip('/')
-            if base_url.startswith('http://'):
-                base_url = 'https://' + base_url[len('http://'):]
+            # リダイレクトURIを環境変数から取得
+            import os
+            base_url = os.getenv('BASE_URL', 'https://web-production-7306b.up.railway.app')
             flow.redirect_uri = base_url + '/oauth2callback'
-            # --- ここまで ---
             auth_url, state = flow.authorization_url(
                 access_type='offline',
                 include_granted_scopes='true',
@@ -268,10 +265,9 @@ def oauth2callback():
         # 新たにflowを生成
         SCOPES = ['https://www.googleapis.com/auth/calendar']
         flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-        # --- redirect_uri自動判定 ---
-        base_url = request.url_root.rstrip('/')
-        if base_url.startswith('http://'):
-            base_url = 'https://' + base_url[len('http://'):]
+        # リダイレクトURIを環境変数から取得
+        import os
+        base_url = os.getenv('BASE_URL', 'https://web-production-7306b.up.railway.app')
         flow.redirect_uri = base_url + '/oauth2callback'
         # --- ここまで ---
         # 認証コードを取得してトークンを交換（スコープ警告を無視）
