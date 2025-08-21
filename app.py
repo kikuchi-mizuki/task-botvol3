@@ -222,6 +222,11 @@ def onetime_login():
             if not base_url:
                 raise ValueError("BASE_URL環境変数が設定されていません")
             flow.redirect_uri = base_url + '/oauth2callback'
+            
+            # デバッグ用ログ
+            print(f"[DEBUG] BASE_URL: {base_url}")
+            print(f"[DEBUG] Redirect URI: {flow.redirect_uri}")
+            
             auth_url, state = flow.authorization_url(
                 access_type='offline',
                 include_granted_scopes='true',
@@ -273,6 +278,10 @@ def oauth2callback():
         if not base_url:
             raise ValueError("BASE_URL環境変数が設定されていません")
         flow.redirect_uri = base_url + '/oauth2callback'
+        
+        # デバッグ用ログ
+        print(f"[DEBUG] oauth2callback - BASE_URL: {base_url}")
+        print(f"[DEBUG] oauth2callback - Redirect URI: {flow.redirect_uri}")
         # --- ここまで ---
         # 認証コードを取得してトークンを交換（スコープ警告を無視）
         import warnings
