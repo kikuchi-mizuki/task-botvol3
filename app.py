@@ -84,8 +84,10 @@ def handle_message(event):
         # メッセージを処理してレスポンスを取得
         response = line_bot_handler.handle_message(event)
         
-        # LINEにメッセージを送信（リトライ機能付き）
-        max_retries = 3
+        # LINEにメッセージを送信（SSLエラー対応のリトライ機能付き）
+        max_retries = 5
+        retry_delay = 2  # 秒
+        
         for attempt in range(max_retries):
             try:
                 line_bot_handler.line_bot_api.reply_message(
@@ -95,9 +97,25 @@ def handle_message(event):
                 logger.info("メッセージの処理が完了しました")
                 break
             except Exception as send_error:
-                logger.warning(f"メッセージ送信試行 {attempt + 1}/{max_retries} でエラー: {send_error}")
+                error_msg = str(send_error)
+                logger.warning(f"メッセージ送信試行 {attempt + 1}/{max_retries} でエラー: {error_msg}")
+                
+                # SSLエラーの場合は特別な処理
+                if "SSL SYSCALL error" in error_msg or "EOF detected" in error_msg:
+                    logger.info(f"SSLエラーを検出、{retry_delay}秒後にリトライします")
+                    import time
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # 指数バックオフ
+                    if attempt == max_retries - 1:
+                        logger.error("SSLエラーが継続し、最大リトライ回数に達しました")
+                        raise send_error
+                    continue
+                
+                # その他のエラーの場合
                 if attempt == max_retries - 1:
+                    logger.error(f"最大リトライ回数に達しました: {send_error}")
                     raise send_error
+                
                 import time
                 time.sleep(1)  # 1秒待機してからリトライ
         
@@ -105,10 +123,23 @@ def handle_message(event):
         logger.error(f"メッセージ処理でエラーが発生しました: {e}")
         # エラーが発生した場合はエラーメッセージを送信
         try:
-            line_bot_handler.line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="申し訳ございません。エラーが発生しました。しばらく時間をおいて再度お試しください。")
-            )
+            # エラーメッセージ送信時もリトライ機能を適用
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    line_bot_handler.line_bot_api.reply_message(
+                        event.reply_token,
+                        TextSendMessage(text="申し訳ございません。エラーが発生しました。しばらく時間をおいて再度お試しください。")
+                    )
+                    logger.info("エラーメッセージの送信が完了しました")
+                    break
+                except Exception as reply_error:
+                    logger.warning(f"エラーメッセージ送信試行 {attempt + 1}/{max_retries} でエラー: {reply_error}")
+                    if attempt == max_retries - 1:
+                        logger.error(f"エラーメッセージの送信に失敗しました: {reply_error}")
+                    else:
+                        import time
+                        time.sleep(1)
         except Exception as reply_error:
             logger.error(f"エラーメッセージの送信に失敗しました: {reply_error}")
 
@@ -435,4 +466,15 @@ def api_debug_users():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     logger.info("LINE Calendar Bot を起動しています...")
+    
+    # SSL設定の確認
+    import ssl
+    logger.info(f"SSL バージョン: {ssl.OPENSSL_VERSION}")
+    logger.info(f"利用可能なSSLプロトコル: {ssl._PROTOCOL_NAMES}")
+    
+    # ネットワーク設定の確認
+    import requests
+    logger.info(f"Requests バージョン: {requests.__version__}")
+    logger.info(f"urllib3 バージョン: {requests.packages.urllib3.__version__}")
+    
     app.run(debug=True, host='0.0.0.0', port=port) 
