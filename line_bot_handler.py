@@ -18,13 +18,14 @@ class LineBotHandler:
         line_token = Config.LINE_CHANNEL_ACCESS_TOKEN or "dummy_token"
         line_secret = Config.LINE_CHANNEL_SECRET or "dummy_secret"
         
-        # LINE Bot API クライアント初期化（タイムアウトとリトライ設定付き）
+        # LINE Bot API クライアント初期化（標準）
+        self.line_bot_api = LineBotApi(line_token)
+        self.handler = WebhookHandler(line_secret)
+        
+        # カスタムセッション設定をグローバルに適用
         import requests
         from requests.adapters import HTTPAdapter
         from urllib3.util.retry import Retry
-        
-        # カスタムセッションを作成
-        session = requests.Session()
         
         # リトライ戦略を設定
         retry_strategy = Retry(
@@ -35,14 +36,15 @@ class LineBotHandler:
         
         # アダプターを設定
         adapter = HTTPAdapter(max_retries=retry_strategy)
+        
+        # グローバルセッション設定
+        session = requests.Session()
         session.mount("http://", adapter)
         session.mount("https://", adapter)
-        
-        # タイムアウト設定
         session.timeout = (10, 30)  # (接続タイムアウト, 読み取りタイムアウト)
         
-        self.line_bot_api = LineBotApi(line_token, session=session)
-        self.handler = WebhookHandler(line_secret)
+        # LINE Bot SDKの内部セッションを置き換え
+        self.line_bot_api._session = session
         
         # DBヘルパーの初期化
         self.db_helper = DBHelper()
