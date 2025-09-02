@@ -103,13 +103,17 @@ def handle_message(event):
                 # SSLエラーの場合は特別な処理
                 if "SSL SYSCALL error" in error_msg or "EOF detected" in error_msg:
                     logger.info(f"SSLエラーを検出、{retry_delay}秒後にリトライします")
+                    logger.info(f"SSLエラー詳細: {type(send_error).__name__}: {error_msg}")
                     import time
                     time.sleep(retry_delay)
-                    retry_delay *= 2  # 指数バックオフ
-                    if attempt == max_retries - 1:
+                    
+                    if attempt < max_retries - 1:
+                        retry_delay *= 2  # 指数バックオフ（次の試行用）
+                        logger.info(f"次のリトライまでの待機時間: {retry_delay}秒")
+                        continue
+                    else:
                         logger.error("SSLエラーが継続し、最大リトライ回数に達しました")
                         raise send_error
-                    continue
                 
                 # その他のエラーの場合
                 if attempt == max_retries - 1:

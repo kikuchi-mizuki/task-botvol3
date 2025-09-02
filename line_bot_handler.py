@@ -27,21 +27,23 @@ class LineBotHandler:
         from requests.adapters import HTTPAdapter
         from urllib3.util.retry import Retry
         
-        # リトライ戦略を設定
+        # リトライ戦略を設定（より詳細な設定）
         retry_strategy = Retry(
-            total=3,  # 最大リトライ回数
-            backoff_factor=1,  # バックオフ係数
-            status_forcelist=[429, 500, 502, 503, 504],  # リトライするHTTPステータスコード
+            total=5,  # 最大リトライ回数を増加
+            backoff_factor=2,  # バックオフ係数を増加
+            status_forcelist=[429, 500, 502, 503, 504, 520, 521, 522, 523, 524],  # リトライするHTTPステータスコードを拡張
+            allowed_methods=["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"],  # 全HTTPメソッドでリトライ
+            raise_on_status=False,  # ステータスエラーで例外を発生させない
         )
         
         # アダプターを設定
-        adapter = HTTPAdapter(max_retries=retry_strategy)
+        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=10, pool_maxsize=20)
         
         # グローバルセッション設定
         session = requests.Session()
         session.mount("http://", adapter)
         session.mount("https://", adapter)
-        session.timeout = (10, 30)  # (接続タイムアウト, 読み取りタイムアウト)
+        session.timeout = (15, 45)  # (接続タイムアウト, 読み取りタイムアウト) を増加
         
         # LINE Bot SDKの内部セッションを置き換え
         self.line_bot_api._session = session
