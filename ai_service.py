@@ -420,8 +420,8 @@ class AIService:
                     new_dates.append(new_date_entry)
                     print(f"[DEBUG] 柔軟な日付解析で追加: {new_date_entry}")
         
-        # 本日/今日の処理を追加
-        if '本日' in original_text or '今日' in original_text:
+        # 本日/今日の処理を追加（AIが既に予定を作成していない場合のみ）
+        if ('本日' in original_text or '今日' in original_text) and not new_dates:
             date_str = now.strftime('%Y-%m-%d')
             
             # 時間の抽出
@@ -458,9 +458,8 @@ class AIService:
                     'description': ''
                 }
                 
-                if not any(d.get('date') == date_str and d.get('time') == start_time and d.get('end_time') == end_time for d in new_dates):
-                    new_dates.append(main_event)
-                    print(f"[DEBUG] 本日/今日の予定を追加: {main_event}")
+                new_dates.append(main_event)
+                print(f"[DEBUG] 本日/今日の予定を追加: {main_event}")
         
         print(f"[DEBUG] new_dates(正規表現追加後): {new_dates}")
         
@@ -494,8 +493,21 @@ class AIService:
             # 移動時間を追加するかチェック
             if self._should_add_travel_time(date_info, original_text):
                 travel_events = self._create_travel_events(date_info, jst)
-                new_dates.extend(travel_events)
-                print(f"[DEBUG] 移動時間を追加: {travel_events}")
+                
+                # 移動時間の重複チェック
+                for travel_event in travel_events:
+                    is_duplicate = False
+                    for existing_date in new_dates:
+                        if (existing_date.get('date') == travel_event.get('date') and 
+                            existing_date.get('time') == travel_event.get('time') and 
+                            existing_date.get('end_time') == travel_event.get('end_time')):
+                            is_duplicate = True
+                            print(f"[DEBUG] 重複する移動時間をスキップ: {travel_event}")
+                            break
+                    
+                    if not is_duplicate:
+                        new_dates.append(travel_event)
+                        print(f"[DEBUG] 移動時間を追加: {travel_event}")
         
         return new_dates
     
