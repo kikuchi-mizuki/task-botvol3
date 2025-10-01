@@ -401,8 +401,88 @@ class AIService:
                     new_dates.append(new_date_entry)
                     print(f"[DEBUG] 柔軟な日付解析で追加: {new_date_entry}")
         print(f"[DEBUG] new_dates(正規表現追加後): {new_dates}")
+        
+        # 移動時間の自動追加処理
+        new_dates = self._add_travel_time(new_dates, original_text)
+        
         parsed['dates'] = new_dates
         return parsed
+    
+    def _add_travel_time(self, dates, original_text):
+        """移動時間を自動追加する処理"""
+        from datetime import datetime, timedelta
+        import pytz
+        
+        # 移動キーワードをチェック
+        travel_keywords = ['移動', '移動あり', '移動時間', '移動必要']
+        has_travel = any(keyword in original_text for keyword in travel_keywords)
+        
+        if not has_travel:
+            return dates
+        
+        print(f"[DEBUG] 移動時間の自動追加を開始")
+        
+        jst = pytz.timezone('Asia/Tokyo')
+        new_dates = []
+        
+        for date_info in dates:
+            # 元の予定を追加
+            new_dates.append(date_info)
+            
+            # 移動時間を追加するかチェック
+            if self._should_add_travel_time(date_info, original_text):
+                travel_events = self._create_travel_events(date_info, jst)
+                new_dates.extend(travel_events)
+                print(f"[DEBUG] 移動時間を追加: {travel_events}")
+        
+        return new_dates
+    
+    def _should_add_travel_time(self, date_info, original_text):
+        """移動時間を追加すべきかチェック"""
+        # 移動キーワードが含まれている場合のみ追加
+        travel_keywords = ['移動', '移動あり', '移動時間', '移動必要']
+        return any(keyword in original_text for keyword in travel_keywords)
+    
+    def _create_travel_events(self, main_event, jst):
+        """移動時間の予定を作成"""
+        from datetime import datetime, timedelta
+        
+        travel_events = []
+        date_str = main_event['date']
+        start_time = main_event['time']
+        end_time = main_event['end_time']
+        
+        # 開始時間と終了時間をdatetimeオブジェクトに変換
+        start_dt = jst.localize(datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M"))
+        end_dt = jst.localize(datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M"))
+        
+        # 移動前の予定（1時間前）
+        travel_before_dt = start_dt - timedelta(hours=1)
+        travel_before_end_dt = start_dt
+        
+        travel_before_event = {
+            'date': date_str,
+            'time': travel_before_dt.strftime('%H:%M'),
+            'end_time': travel_before_end_dt.strftime('%H:%M'),
+            'title': '移動時間（往路）',
+            'description': '移動のための時間'
+        }
+        travel_events.append(travel_before_event)
+        
+        # 移動後の予定（1時間後）
+        travel_after_dt = end_dt
+        travel_after_end_dt = end_dt + timedelta(hours=1)
+        
+        travel_after_event = {
+            'date': date_str,
+            'time': travel_after_dt.strftime('%H:%M'),
+            'end_time': travel_after_end_dt.strftime('%H:%M'),
+            'title': '移動時間（復路）',
+            'description': '移動のための時間'
+        }
+        travel_events.append(travel_after_event)
+        
+        return travel_events
     
     def extract_event_info(self, text):
         """イベント追加用の情報を抽出します"""
