@@ -159,40 +159,119 @@ class LineBotHandler:
                 print(f"[DEBUG] dates_info: {ai_result.get('dates', [])}")
                 return self._handle_availability_check(ai_result.get('dates', []), line_user_id)
             elif task_type == 'add_event':
-                # 予定追加時の重複確認ロジック
+                # 予定追加時の重複確認ロジック（複数予定対応）
                 if not self.calendar_service:
                     return TextSendMessage(text="カレンダーサービスが初期化されていません。")
-                event_info = self.ai_service.extract_event_info(user_message)
-                if 'error' in event_info:
+                
+                dates = ai_result.get('dates', [])
+                if not dates:
                     return TextSendMessage(text="イベント情報を正しく認識できませんでした。\n\n例: 「明日の午前9時から会議を追加して」\n「来週月曜日の14時から打ち合わせ」")
-                from dateutil import parser
-                start_datetime = parser.parse(event_info['start_datetime'])
-                end_datetime = parser.parse(event_info['end_datetime'])
-                start_datetime = self.jst.localize(start_datetime)
-                end_datetime = self.jst.localize(end_datetime)
-                # 既存予定を取得
-                events = self.calendar_service.get_events_for_time_range(start_datetime, end_datetime, line_user_id)
-                if events:
-                    # 重複予定がある場合はpending_eventsに保存し確認
-                    import json
-                    self.db_helper.save_pending_event(line_user_id, json.dumps(event_info))
-                    event_lines = '\n'.join([f"- {e['title']} ({parser.parse(e['start']).strftime('%H:%M')}～{parser.parse(e['end']).strftime('%H:%M')})" for e in events])
-                    return TextSendMessage(text=f"⚠️ この時間帯に既に予定が存在します：\n{event_lines}\n\nそれでも追加しますか？")
-                # 重複がなければそのまま追加
-                success, message, result = self.calendar_service.add_event(
-                    event_info['title'],
-                    start_datetime,
-                    end_datetime,
-                    event_info.get('description', ''),
-                    line_user_id=line_user_id,
-                    force_add=True
-                )
-                return TextSendMessage(text=self.ai_service.format_event_confirmation(success, message, result))
+                
+                # 複数の予定を処理
+                return self._handle_multiple_events(dates, line_user_id)
             else:
                 # 未対応コマンドの場合もガイダンスメッセージ
                 return TextSendMessage(text="日時の送信で空き時間が分かります！\n日時と内容の送信で予定を追加します！\n\n例：\n・「明日の空き時間」\n・「7/15 15:00〜16:00の空き時間」\n・「明日の午前9時から会議を追加して」\n・「来週月曜日の14時から打ち合わせ」")
         except Exception as e:
             return TextSendMessage(text=f"エラーが発生しました: {str(e)}")
+    
+    def _handle_multiple_events(self, dates, line_user_id):
+        """複数の予定を処理します"""
+        try:
+            from dateutil import parser
+            import json
+            
+            added_events = []
+            failed_events = []
+            
+            for date_info in dates:
+                try:
+                    # 日時を構築
+                    date_str = date_info.get('date')
+                    time_str = date_info.get('time')
+                    end_time_str = date_info.get('end_time')
+                    title = date_info.get('title', '予定')
+                    description = date_info.get('description', '')
+                    
+                    if not date_str or not time_str or not end_time_str:
+                        print(f"[DEBUG] 不完全な予定情報をスキップ: {date_info}")
+                        continue
+                    
+                    # 日時文字列を構築
+                    start_datetime_str = f"{date_str}T{time_str}:00+09:00"
+                    end_datetime_str = f"{date_str}T{end_time_str}:00+09:00"
+                    
+                    print(f"[DEBUG] 予定追加処理: {title} - {start_datetime_str} to {end_datetime_str}")
+                    
+                    # 日時をパース
+                    start_datetime = parser.parse(start_datetime_str)
+                    end_datetime = parser.parse(end_datetime_str)
+                    start_datetime = self.jst.localize(start_datetime)
+                    end_datetime = self.jst.localize(end_datetime)
+                    
+                    # 既存予定をチェック
+                    events = self.calendar_service.get_events_for_time_range(start_datetime, end_datetime, line_user_id)
+                    if events:
+                        print(f"[DEBUG] 重複予定を検出: {title}")
+                        failed_events.append({
+                            'title': title,
+                            'time': f"{time_str}-{end_time_str}",
+                            'reason': '重複'
+                        })
+                        continue
+                    
+                    # 予定を追加
+                    success, message, result = self.calendar_service.add_event(
+                        title,
+                        start_datetime,
+                        end_datetime,
+                        description,
+                        line_user_id=line_user_id,
+                        force_add=True
+                    )
+                    
+                    if success:
+                        added_events.append({
+                            'title': title,
+                            'time': f"{time_str}-{end_time_str}"
+                        })
+                        print(f"[DEBUG] 予定追加成功: {title}")
+                    else:
+                        failed_events.append({
+                            'title': title,
+                            'time': f"{time_str}-{end_time_str}",
+                            'reason': message
+                        })
+                        print(f"[DEBUG] 予定追加失敗: {title} - {message}")
+                        
+                except Exception as e:
+                    print(f"[DEBUG] 予定処理エラー: {e}")
+                    failed_events.append({
+                        'title': date_info.get('title', '予定'),
+                        'time': f"{date_info.get('time', '')}-{date_info.get('end_time', '')}",
+                        'reason': str(e)
+                    })
+            
+            # 結果メッセージを構築
+            if added_events:
+                response_text = "✅予定を追加しました！\n\n"
+                for event in added_events:
+                    response_text += f"📅{event['title']}\n{event['time']}\n"
+                
+                if failed_events:
+                    response_text += "\n⚠️追加できなかった予定:\n"
+                    for event in failed_events:
+                        response_text += f"• {event['title']} ({event['time']}) - {event['reason']}\n"
+            else:
+                response_text = "❌予定を追加できませんでした。\n\n"
+                for event in failed_events:
+                    response_text += f"• {event['title']} ({event['time']}) - {event['reason']}\n"
+            
+            return TextSendMessage(text=response_text)
+            
+        except Exception as e:
+            print(f"[DEBUG] 複数予定処理エラー: {e}")
+            return TextSendMessage(text=f"予定の処理中にエラーが発生しました: {str(e)}")
     
     def _handle_availability_check(self, dates_info, line_user_id):
         """空き時間確認を処理します"""
