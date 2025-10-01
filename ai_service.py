@@ -419,6 +419,49 @@ class AIService:
                         new_date_entry['title'] = f"予定（{date_str} {start_time}〜{end_time}）"
                     new_dates.append(new_date_entry)
                     print(f"[DEBUG] 柔軟な日付解析で追加: {new_date_entry}")
+        
+        # 本日/今日の処理を追加
+        if '本日' in original_text or '今日' in original_text:
+            date_str = now.strftime('%Y-%m-%d')
+            
+            # 時間の抽出
+            time_pattern = r'(本日|今日)(\d{1,2})時'
+            time_match = re.search(time_pattern, original_text)
+            
+            if time_match:
+                hour = int(time_match.group(2))
+                start_time = f"{hour:02d}:00"
+                end_time = f"{hour+1:02d}:00"
+                
+                # タイトルを抽出
+                title_parts = original_text.split()
+                title = ""
+                for part in title_parts:
+                    if part in ['移動', '移動あり', '移動時間', '移動必要']:
+                        break
+                    if not re.match(r'^\d{1,2}時$', part) and part not in ['本日', '今日']:
+                        if title:
+                            title += " "
+                        title += part
+                
+                if not title:
+                    title = "予定"
+                
+                print(f"[DEBUG] 抽出されたタイトル: '{title}'")
+                
+                # メイン予定を作成
+                main_event = {
+                    'date': date_str,
+                    'time': start_time,
+                    'end_time': end_time,
+                    'title': title,
+                    'description': ''
+                }
+                
+                if not any(d.get('date') == date_str and d.get('time') == start_time and d.get('end_time') == end_time for d in new_dates):
+                    new_dates.append(main_event)
+                    print(f"[DEBUG] 本日/今日の予定を追加: {main_event}")
+        
         print(f"[DEBUG] new_dates(正規表現追加後): {new_dates}")
         
         # 移動時間の自動追加処理
