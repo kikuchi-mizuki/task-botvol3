@@ -164,7 +164,26 @@ class AIService:
             # 今日
             if re.search(r'今日', phrase):
                 d['date'] = now.strftime('%Y-%m-%d')
-                if not d.get('time'):
+                # 今日X時の形式を処理
+                time_match = re.search(r'今日(\d{1,2})時', phrase)
+                if time_match:
+                    hour = int(time_match.group(1))
+                    d['time'] = f"{hour:02d}:00"
+                    d['end_time'] = f"{hour+1:02d}:00"
+                elif not d.get('time'):
+                    d['time'] = now.strftime('%H:%M')
+                if not d.get('end_time'):
+                    d['end_time'] = '23:59'
+            # 本日
+            if re.search(r'本日', phrase):
+                d['date'] = now.strftime('%Y-%m-%d')
+                # 本日X時の形式を処理
+                time_match = re.search(r'本日(\d{1,2})時', phrase)
+                if time_match:
+                    hour = int(time_match.group(1))
+                    d['time'] = f"{hour:02d}:00"
+                    d['end_time'] = f"{hour+1:02d}:00"
+                elif not d.get('time'):
                     d['time'] = now.strftime('%H:%M')
                 if not d.get('end_time'):
                     d['end_time'] = '23:59'
