@@ -193,9 +193,17 @@ class LineBotHandler:
                     title = date_info.get('title', '予定')
                     description = date_info.get('description', '')
                     
-                    if not date_str or not time_str or not end_time_str:
+                    if not date_str or not time_str:
                         print(f"[DEBUG] 不完全な予定情報をスキップ: {date_info}")
                         continue
+                    
+                    # 終了時間が設定されていない場合は1時間後に設定
+                    if not end_time_str or end_time_str == time_str:
+                        from datetime import datetime, timedelta
+                        time_obj = datetime.strptime(time_str, "%H:%M")
+                        end_time_obj = time_obj + timedelta(hours=1)
+                        end_time_str = end_time_obj.strftime("%H:%M")
+                        print(f"[DEBUG] 終了時間を自動設定: {time_str} -> {end_time_str}")
                     
                     # 日時文字列を構築
                     start_datetime_str = f"{date_str}T{time_str}:00+09:00"
@@ -203,11 +211,15 @@ class LineBotHandler:
                     
                     print(f"[DEBUG] 予定追加処理: {title} - {start_datetime_str} to {end_datetime_str}")
                     
-                    # 日時をパース
+                    # 日時をパース（タイムゾーン処理を改善）
                     start_datetime = parser.parse(start_datetime_str)
                     end_datetime = parser.parse(end_datetime_str)
-                    start_datetime = self.jst.localize(start_datetime)
-                    end_datetime = self.jst.localize(end_datetime)
+                    
+                    # 既にタイムゾーンが設定されている場合はそのまま使用、そうでなければJSTを設定
+                    if start_datetime.tzinfo is None:
+                        start_datetime = self.jst.localize(start_datetime)
+                    if end_datetime.tzinfo is None:
+                        end_datetime = self.jst.localize(end_datetime)
                     
                     # 既存予定をチェック
                     events = self.calendar_service.get_events_for_time_range(start_datetime, end_datetime, line_user_id)
