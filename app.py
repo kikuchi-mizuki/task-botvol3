@@ -274,7 +274,7 @@ def onetime_login():
             logging.error(f"Google OAuth認証エラー: {e}")
             html = '''
             <!DOCTYPE html>
-            <html>
+            <R>
             <head>
                 <title>認証エラー</title>
                 <meta charset="utf-8">

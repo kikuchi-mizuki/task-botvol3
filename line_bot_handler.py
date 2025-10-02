@@ -225,12 +225,45 @@ class LineBotHandler:
                     events = self.calendar_service.get_events_for_time_range(start_datetime, end_datetime, line_user_id)
                     if events:
                         print(f"[DEBUG] 重複予定を検出: {title}")
-                        failed_events.append({
+                        # 重複確認メッセージを表示
+                        conflicting_events = []
+                        for event in events:
+                            conflicting_events.append({
+                                'title': event.get('title', '予定なし'),
+                                'start': event.get('start', ''),
+                                'end': event.get('end', '')
+                            })
+                        
+                        # 重複確認メッセージを構築
+                        response_text = "⚠️ この時間帯に既に予定が存在します:\n"
+                        for event in conflicting_events:
+                            # 時間をフォーマット
+                            start_time = event['start']
+                            end_time = event['end']
+                            if 'T' in start_time:
+                                start_dt = parser.parse(start_time)
+                                end_dt = parser.parse(end_time)
+                                start_dt = start_dt.astimezone(self.jst)
+                                end_dt = end_dt.astimezone(self.jst)
+                                time_str = f"{start_dt.strftime('%H:%M')}~{end_dt.strftime('%H:%M')}"
+                            else:
+                                time_str = f"{start_time}~{end_time}"
+                            
+                            response_text += f"- {event['title']}\n({time_str})\n"
+                        
+                        response_text += "\nそれでも追加しますか？\n「はい」と返信してください。"
+                        
+                        # 予定情報をpending_eventsに保存
+                        event_info = {
                             'title': title,
-                            'time': f"{time_str}-{end_time_str}",
-                            'reason': '重複'
-                        })
-                        continue
+                            'start_datetime': start_datetime_str,
+                            'end_datetime': end_datetime_str,
+                            'description': description
+                        }
+                        import json
+                        self.db_helper.save_pending_event(line_user_id, json.dumps(event_info))
+                        
+                        return TextSendMessage(text=response_text)
                     
                     # 予定を追加
                     success, message, result = self.calendar_service.add_event(
