@@ -274,15 +274,37 @@ class LineBotHandler:
                         'reason': str(e)
                     })
             
-            # 結果メッセージを構築（元の表示形式を維持）
+            # 結果メッセージを構築（移動時間を含む場合は統一形式）
             if added_events:
-                response_text = "✅予定を追加しました！\n\n"
-                for event in added_events:
-                    # 元の表示形式に合わせる
-                    response_text += f"📅{event['title']}\n{event['time']}\n"
+                # 移動時間が含まれているかチェック
+                has_travel = any('移動時間' in event['title'] for event in added_events)
+                
+                if has_travel and len(added_events) > 1:
+                    # 移動時間を含む場合は統一形式で表示
+                    response_text = "✅予定を追加しました！\n\n"
+                    
+                    # 日付を取得（最初の予定から）
+                    first_event = added_events[0]
+                    date_part = first_event['time'].split(' ')[0]  # "10/2 (木)" の部分
+                    response_text += f"{date_part}\n"
+                    response_text += "────────────────\n"
+                    
+                    # 各予定を番号付きで表示
+                    for i, event in enumerate(added_events, 1):
+                        # 時間部分を抽出（"10:00~11:00" の形式）
+                        time_part = event['time'].split(' ')[1] if ' ' in event['time'] else event['time']
+                        response_text += f"{i}. {event['title']}\n"
+                        response_text += f"🕐 {time_part}\n"
+                    
+                    response_text += "────────────────"
+                else:
+                    # 通常の表示形式
+                    response_text = "✅予定を追加しました！\n\n"
+                    for event in added_events:
+                        response_text += f"📅{event['title']}\n{event['time']}\n"
                 
                 if failed_events:
-                    response_text += "\n⚠️追加できなかった予定:\n"
+                    response_text += "\n\n⚠️追加できなかった予定:\n"
                     for event in failed_events:
                         response_text += f"• {event['title']} ({event['time']}) - {event['reason']}\n"
             else:
