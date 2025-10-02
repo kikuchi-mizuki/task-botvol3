@@ -289,8 +289,16 @@ class LineBotHandler:
                     response_text += f"{date_part}\n"
                     response_text += "────────────────\n"
                     
+                    # 時間順でソート（開始時間でソート）
+                    def get_start_time(event):
+                        time_part = event['time'].split(' ')[1] if ' ' in event['time'] else event['time']
+                        start_time = time_part.split('~')[0]  # "10:00~11:00" -> "10:00"
+                        return start_time
+                    
+                    sorted_events = sorted(added_events, key=get_start_time)
+                    
                     # 各予定を番号付きで表示
-                    for i, event in enumerate(added_events, 1):
+                    for i, event in enumerate(sorted_events, 1):
                         # 時間部分を抽出（"10:00~11:00" の形式）
                         time_part = event['time'].split(' ')[1] if ' ' in event['time'] else event['time']
                         response_text += f"{i}. {event['title']}\n"
