@@ -243,9 +243,19 @@ class LineBotHandler:
                     )
                     
                     if success:
+                        # 元の表示形式に合わせて日時をフォーマット
+                        from datetime import datetime
+                        import pytz
+                        jst = pytz.timezone('Asia/Tokyo')
+                        start_dt = start_datetime.astimezone(jst)
+                        end_dt = end_datetime.astimezone(jst)
+                        weekday = "月火水木金土日"[start_dt.weekday()]
+                        date_str = f"{start_dt.month}/{start_dt.day}（{weekday}）"
+                        time_str = f"{start_dt.strftime('%H:%M')}〜{end_dt.strftime('%H:%M')}"
+                        
                         added_events.append({
                             'title': title,
-                            'time': f"{time_str}-{end_time_str}"
+                            'time': f"{date_str}{time_str}"
                         })
                         print(f"[DEBUG] 予定追加成功: {title}")
                     else:
@@ -264,10 +274,11 @@ class LineBotHandler:
                         'reason': str(e)
                     })
             
-            # 結果メッセージを構築
+            # 結果メッセージを構築（元の表示形式を維持）
             if added_events:
                 response_text = "✅予定を追加しました！\n\n"
                 for event in added_events:
+                    # 元の表示形式に合わせる
                     response_text += f"📅{event['title']}\n{event['time']}\n"
                 
                 if failed_events:
