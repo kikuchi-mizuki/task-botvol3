@@ -173,7 +173,11 @@ class AIService:
                 elif not d.get('time'):
                     d['time'] = now.strftime('%H:%M')
                 if not d.get('end_time'):
-                    d['end_time'] = '23:59'
+                    # 終了時間が設定されていない場合は1時間後に設定
+                    from datetime import datetime, timedelta
+                    time_obj = datetime.strptime(d.get('time', now.strftime('%H:%M')), "%H:%M")
+                    end_time_obj = time_obj + timedelta(hours=1)
+                    d['end_time'] = end_time_obj.strftime('%H:%M')
             # 本日
             if re.search(r'本日', phrase):
                 d['date'] = now.strftime('%Y-%m-%d')
@@ -186,7 +190,11 @@ class AIService:
                 elif not d.get('time'):
                     d['time'] = now.strftime('%H:%M')
                 if not d.get('end_time'):
-                    d['end_time'] = '23:59'
+                    # 終了時間が設定されていない場合は1時間後に設定
+                    from datetime import datetime, timedelta
+                    time_obj = datetime.strptime(d.get('time', now.strftime('%H:%M')), "%H:%M")
+                    end_time_obj = time_obj + timedelta(hours=1)
+                    d['end_time'] = end_time_obj.strftime('%H:%M')
             # 今日から1週間
             if re.search(r'今日から1週間', phrase):
                 d['date'] = now.strftime('%Y-%m-%d')
@@ -195,7 +203,11 @@ class AIService:
                 d['end_time'] = '23:59'
             # end_timeが空
             if d.get('time') and not d.get('end_time'):
-                d['end_time'] = '23:59'
+                # 終了時間が設定されていない場合は1時間後に設定
+                from datetime import datetime, timedelta
+                time_obj = datetime.strptime(d.get('time'), "%H:%M")
+                end_time_obj = time_obj + timedelta(hours=1)
+                d['end_time'] = end_time_obj.strftime('%H:%M')
             # title補完
             if not d.get('title') or d['title'] == '':
                 if d.get('description'):
