@@ -197,7 +197,7 @@ class LineBotHandler:
                         print(f"[DEBUG] 不完全な予定情報をスキップ: {date_info}")
                         continue
                     
-                    # 終了時間が設定されていない場合は1時間後に設定
+                    # 終了時間が設定されていない場合は1時間後に設定（元の設定を維持）
                     if not end_time_str or end_time_str == time_str:
                         from datetime import datetime, timedelta
                         time_obj = datetime.strptime(time_str, "%H:%M")
