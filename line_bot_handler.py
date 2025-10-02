@@ -287,7 +287,7 @@ class LineBotHandler:
                     first_event = added_events[0]
                     date_part = first_event['time'].split(' ')[0]  # "10/2 (木)" の部分
                     response_text += f"{date_part}\n"
-                    response_text += "────────────────\n"
+                    response_text += "────────\n"
                     
                     # 時間順でソート（開始時間でソート）
                     def get_start_time(event):
@@ -304,7 +304,7 @@ class LineBotHandler:
                         response_text += f"{i}. {event['title']}\n"
                         response_text += f"🕐 {time_part}\n"
                     
-                    response_text += "────────────────"
+                    response_text += "────────"
                 else:
                     # 通常の表示形式
                     response_text = "✅予定を追加しました！\n\n"
