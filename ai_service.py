@@ -172,12 +172,13 @@ class AIService:
                     d['end_time'] = f"{hour+1:02d}:00"
                 elif not d.get('time'):
                     d['time'] = now.strftime('%H:%M')
-                if not d.get('end_time'):
-                    # 終了時間が設定されていない場合は1時間後に設定
+                # 今日の場合は終了時間を1時間後に強制設定（AIの設定を上書き）
+                if d.get('time'):
                     from datetime import datetime, timedelta
-                    time_obj = datetime.strptime(d.get('time', now.strftime('%H:%M')), "%H:%M")
+                    time_obj = datetime.strptime(d.get('time'), "%H:%M")
                     end_time_obj = time_obj + timedelta(hours=1)
                     d['end_time'] = end_time_obj.strftime('%H:%M')
+                    print(f"[DEBUG] 今日の終了時間を1時間後に強制設定: {d.get('time')} -> {d['end_time']}")
             # 本日
             if re.search(r'本日', phrase):
                 d['date'] = now.strftime('%Y-%m-%d')
@@ -187,14 +188,16 @@ class AIService:
                     hour = int(time_match.group(1))
                     d['time'] = f"{hour:02d}:00"
                     d['end_time'] = f"{hour+1:02d}:00"
+                    print(f"[DEBUG] 本日X時の処理: {hour}時 -> {hour+1}時")
                 elif not d.get('time'):
                     d['time'] = now.strftime('%H:%M')
-                if not d.get('end_time'):
-                    # 終了時間が設定されていない場合は1時間後に設定
+                # 本日の場合は終了時間を1時間後に強制設定（AIの設定を上書き）
+                if d.get('time'):
                     from datetime import datetime, timedelta
-                    time_obj = datetime.strptime(d.get('time', now.strftime('%H:%M')), "%H:%M")
+                    time_obj = datetime.strptime(d.get('time'), "%H:%M")
                     end_time_obj = time_obj + timedelta(hours=1)
                     d['end_time'] = end_time_obj.strftime('%H:%M')
+                    print(f"[DEBUG] 本日の終了時間を1時間後に強制設定: {d.get('time')} -> {d['end_time']}")
             # 今日から1週間
             if re.search(r'今日から1週間', phrase):
                 d['date'] = now.strftime('%Y-%m-%d')
