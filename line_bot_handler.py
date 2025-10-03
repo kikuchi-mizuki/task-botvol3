@@ -114,8 +114,11 @@ class LineBotHandler:
                 from dateutil import parser
                 start_datetime = parser.parse(event_info['start_datetime'])
                 end_datetime = parser.parse(event_info['end_datetime'])
-                start_datetime = self.jst.localize(start_datetime)
-                end_datetime = self.jst.localize(end_datetime)
+                # 既にタイムゾーンが設定されている場合はそのまま使用、そうでなければJSTを設定
+                if start_datetime.tzinfo is None:
+                    start_datetime = self.jst.localize(start_datetime)
+                if end_datetime.tzinfo is None:
+                    end_datetime = self.jst.localize(end_datetime)
                 if not self.calendar_service or not self.ai_service:
                     return TextSendMessage(text="カレンダーサービスまたはAIサービスが初期化されていません。")
                 success, message, result = self.calendar_service.add_event(
