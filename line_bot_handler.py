@@ -4,6 +4,7 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from datetime import datetime, timedelta
 from dateutil import parser
 import pytz
+import re
 from calendar_service import GoogleCalendarService
 from ai_service import AIService
 from config import Config
@@ -321,14 +322,20 @@ class LineBotHandler:
                     
                     # 日付を取得（最初の予定から）
                     first_event = added_events[0]
-                    date_part = first_event['time'].split(' ')[0]  # "10/2 (木)" の部分
+                    time_str = first_event['time']
+                    # "10/18 (土)19:00〜20:00" から "10/18 (土)" を抽出
+                    date_match = re.search(r'(\d{1,2}/\d{1,2}\s*\([月火水木金土日]\)\s*)', time_str)
+                    date_part = date_match.group(1).strip() if date_match else time_str
                     response_text += f"{date_part}\n"
                     response_text += "────────\n"
                     
                     # 時間順でソート（開始時間でソート）
                     def get_start_time(event):
-                        time_part = event['time'].split(' ')[1] if ' ' in event['time'] else event['time']
-                        start_time = time_part.split('~')[0]  # "10:00~11:00" -> "10:00"
+                        time_str = event['time']
+                        # "10/18 (土)19:00〜20:00" から "19:00〜20:00" を抽出
+                        time_match = re.search(r'(\d{1,2}:\d{2}〜\d{1,2}:\d{2})', time_str)
+                        time_part = time_match.group(1) if time_match else time_str
+                        start_time = time_part.split('〜')[0]  # "19:00〜20:00" -> "19:00"
                         return start_time
                     
                     sorted_events = sorted(added_events, key=get_start_time)
@@ -336,7 +343,11 @@ class LineBotHandler:
                     # 各予定を番号付きで表示
                     for i, event in enumerate(sorted_events, 1):
                         # 時間部分を抽出（"10:00~11:00" の形式）
-                        time_part = event['time'].split(' ')[1] if ' ' in event['time'] else event['time']
+                        # 日付と時間の区切りを正しく処理
+                        time_str = event['time']
+                        # "10/18 (土)19:00〜20:00" から "19:00〜20:00" を抽出
+                        time_match = re.search(r'(\d{1,2}:\d{2}〜\d{1,2}:\d{2})', time_str)
+                        time_part = time_match.group(1) if time_match else time_str
                         response_text += f"{i}. {event['title']}\n"
                         response_text += f"🕐 {time_part}\n"
                     
