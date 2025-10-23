@@ -567,8 +567,8 @@ class AIService:
         travel_events.append(travel_before_event)
         
         # 移動後の予定（1時間後）
-        travel_after_dt = end_dt + timedelta(minutes=5)  # 5分の間隔を空ける
-        travel_after_end_dt = end_dt + timedelta(hours=1, minutes=5)
+        travel_after_dt = end_dt
+        travel_after_end_dt = end_dt + timedelta(hours=1)
         
         travel_after_event = {
             'date': date_str,
