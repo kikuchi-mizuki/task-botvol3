@@ -272,6 +272,8 @@ def onetime_login():
             base_url = os.getenv('BASE_URL')
             if not base_url:
                 raise ValueError("BASE_URL環境変数が設定されていません")
+            # 末尾のスラッシュを削除してから結合
+            base_url = base_url.rstrip('/')
             flow.redirect_uri = base_url + '/oauth2callback'
             
             # デバッグ用ログ（リダイレクトURIを表示）
@@ -328,6 +330,8 @@ def oauth2callback():
         base_url = os.getenv('BASE_URL')
         if not base_url:
             raise ValueError("BASE_URL環境変数が設定されていません")
+        # 末尾のスラッシュを削除してから結合
+        base_url = base_url.rstrip('/')
         flow.redirect_uri = base_url + '/oauth2callback'
         
         # デバッグ用ログ（リダイレクトURIを表示）
