@@ -494,7 +494,11 @@ class AIService:
         travel_keywords = ['移動', '移動あり', '移動時間', '移動必要']
         has_travel = any(keyword in original_text for keyword in travel_keywords)
         
+        print(f"[DEBUG] 移動時間チェック: original_text='{original_text}', has_travel={has_travel}")
+        print(f"[DEBUG] 移動キーワード: {travel_keywords}")
+        
         if not has_travel:
+            print(f"[DEBUG] 移動キーワードが見つからないため、移動時間を追加しません")
             return dates
         
         print(f"[DEBUG] 移動時間の自動追加を開始")
@@ -531,12 +535,15 @@ class AIService:
         """移動時間を追加すべきかチェック"""
         # 移動キーワードが含まれている場合のみ追加
         travel_keywords = ['移動', '移動あり', '移動時間', '移動必要']
-        return any(keyword in original_text for keyword in travel_keywords)
+        result = any(keyword in original_text for keyword in travel_keywords)
+        print(f"[DEBUG] _should_add_travel_time: original_text='{original_text}', result={result}")
+        return result
     
     def _create_travel_events(self, main_event, jst):
         """移動時間の予定を作成"""
         from datetime import datetime, timedelta
         
+        print(f"[DEBUG] _create_travel_events開始: main_event={main_event}")
         travel_events = []
         date_str = main_event['date']
         start_time = main_event['time']
@@ -560,8 +567,8 @@ class AIService:
         travel_events.append(travel_before_event)
         
         # 移動後の予定（1時間後）
-        travel_after_dt = end_dt
-        travel_after_end_dt = end_dt + timedelta(hours=1)
+        travel_after_dt = end_dt + timedelta(minutes=5)  # 5分の間隔を空ける
+        travel_after_end_dt = end_dt + timedelta(hours=1, minutes=5)
         
         travel_after_event = {
             'date': date_str,
@@ -572,6 +579,7 @@ class AIService:
         }
         travel_events.append(travel_after_event)
         
+        print(f"[DEBUG] 作成された移動時間イベント: {travel_events}")
         return travel_events
     
     def extract_event_info(self, text):

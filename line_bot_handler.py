@@ -15,13 +15,14 @@ logger = logging.getLogger("line_bot_handler")
 
 class LineBotHandler:
     def __init__(self):
-        # 一時的にダミー値を設定
-        line_token = Config.LINE_CHANNEL_ACCESS_TOKEN or "dummy_token"
-        line_secret = Config.LINE_CHANNEL_SECRET or "dummy_secret"
-        
         # LINE Bot API クライアント初期化（標準）
-        self.line_bot_api = LineBotApi(line_token)
-        self.handler = WebhookHandler(line_secret)
+        if not Config.LINE_CHANNEL_ACCESS_TOKEN:
+            raise ValueError("LINE_CHANNEL_ACCESS_TOKEN environment variable is not set")
+        if not Config.LINE_CHANNEL_SECRET:
+            raise ValueError("LINE_CHANNEL_SECRET environment variable is not set")
+            
+        self.line_bot_api = LineBotApi(Config.LINE_CHANNEL_ACCESS_TOKEN)
+        self.handler = WebhookHandler(Config.LINE_CHANNEL_SECRET)
         
         # カスタムセッション設定をグローバルに適用
         import requests
@@ -110,29 +111,150 @@ class LineBotHandler:
             pending_json = self.db_helper.get_pending_event(line_user_id)
             if pending_json:
                 import json
-                event_info = json.loads(pending_json)
-                # 予定を強制追加
-                from dateutil import parser
-                start_datetime = parser.parse(event_info['start_datetime'])
-                end_datetime = parser.parse(event_info['end_datetime'])
-                # 既にタイムゾーンが設定されている場合はそのまま使用、そうでなければJSTを設定
-                if start_datetime.tzinfo is None:
-                    start_datetime = self.jst.localize(start_datetime)
-                if end_datetime.tzinfo is None:
-                    end_datetime = self.jst.localize(end_datetime)
-                if not self.calendar_service or not self.ai_service:
-                    return TextSendMessage(text="カレンダーサービスまたはAIサービスが初期化されていません。")
-                success, message, result = self.calendar_service.add_event(
-                    event_info['title'],
-                    start_datetime,
-                    end_datetime,
-                    event_info.get('description', ''),
-                    line_user_id=line_user_id,
-                    force_add=True
-                )
-                self.db_helper.delete_pending_event(line_user_id)
-                response_text = self.ai_service.format_event_confirmation(success, message, result)
-                return TextSendMessage(text=response_text)
+                events_data = json.loads(pending_json)
+                
+                # 単一イベントか複数イベントかを判定
+                if isinstance(events_data, list):
+                    # 複数イベント（移動時間含む）の場合
+                    added_events = []
+                    failed_events = []
+                    
+                    for event_info in events_data:
+                        try:
+                            from dateutil import parser
+                            start_datetime = parser.parse(event_info['start_datetime'])
+                            end_datetime = parser.parse(event_info['end_datetime'])
+                            
+                            # 既にタイムゾーンが設定されている場合はそのまま使用、そうでなければJSTを設定
+                            if start_datetime.tzinfo is None:
+                                start_datetime = self.jst.localize(start_datetime)
+                            if end_datetime.tzinfo is None:
+                                end_datetime = self.jst.localize(end_datetime)
+                            
+                            if not self.calendar_service:
+                                failed_events.append({
+                                    'title': event_info['title'],
+                                    'reason': 'カレンダーサービスが初期化されていません'
+                                })
+                                continue
+                            
+                            success, message, result = self.calendar_service.add_event(
+                                event_info['title'],
+                                start_datetime,
+                                end_datetime,
+                                event_info.get('description', ''),
+                                line_user_id=line_user_id,
+                                force_add=True
+                            )
+                            
+                            if success:
+                                # 日時をフォーマット
+                                from datetime import datetime
+                                import pytz
+                                jst = pytz.timezone('Asia/Tokyo')
+                                start_dt = start_datetime.astimezone(jst)
+                                end_dt = end_datetime.astimezone(jst)
+                                weekday = "月火水木金土日"[start_dt.weekday()]
+                                date_str = f"{start_dt.month}/{start_dt.day}（{weekday}）"
+                                time_str = f"{start_dt.strftime('%H:%M')}〜{end_dt.strftime('%H:%M')}"
+                                
+                                added_events.append({
+                                    'title': event_info['title'],
+                                    'time': f"{date_str}{time_str}"
+                                })
+                            else:
+                                failed_events.append({
+                                    'title': event_info['title'],
+                                    'reason': message
+                                })
+                        except Exception as e:
+                            failed_events.append({
+                                'title': event_info.get('title', '予定'),
+                                'reason': str(e)
+                            })
+                    
+                    self.db_helper.delete_pending_event(line_user_id)
+                    
+                    # 結果メッセージを構築（移動時間を含む場合は統一形式）
+                    if added_events:
+                        # 移動時間が含まれているかチェック
+                        has_travel = any('移動時間' in event['title'] for event in added_events)
+                        
+                        if has_travel and len(added_events) > 1:
+                            # 移動時間を含む場合は統一形式で表示
+                            response_text = "✅予定を追加しました！\n\n"
+                            
+                            # 日付を取得（最初の予定から）
+                            first_event = added_events[0]
+                            time_str = first_event['time']
+                            # "10/18 (土)19:00〜20:00" から "10/18 (土)" を抽出
+                            import re
+                            date_match = re.search(r'(\d{1,2}/\d{1,2}\s*\([月火水木金土日]\)\s*)', time_str)
+                            date_part = date_match.group(1).strip() if date_match else time_str
+                            response_text += f"{date_part}\n"
+                            response_text += "────────\n"
+                            
+                            # 時間順でソート（開始時間でソート）
+                            def get_start_time(event):
+                                time_str = event['time']
+                                # "10/18 (土)19:00〜20:00" から "19:00〜20:00" を抽出
+                                time_match = re.search(r'(\d{1,2}:\d{2}〜\d{1,2}:\d{2})', time_str)
+                                time_part = time_match.group(1) if time_match else time_str
+                                start_time = time_part.split('〜')[0]  # "19:00〜20:00" -> "19:00"
+                                return start_time
+                            
+                            sorted_events = sorted(added_events, key=get_start_time)
+                            
+                            # 各予定を番号付きで表示
+                            for i, event in enumerate(sorted_events, 1):
+                                # 時間部分を抽出（"10:00~11:00" の形式）
+                                time_str = event['time']
+                                time_match = re.search(r'(\d{1,2}:\d{2}〜\d{1,2}:\d{2})', time_str)
+                                time_part = time_match.group(1) if time_match else time_str
+                                response_text += f"{i}. {event['title']}\n"
+                                response_text += f"🕐 {time_part}\n"
+                            
+                            response_text += "────────"
+                        else:
+                            # 通常の表示形式
+                            response_text = "✅予定を追加しました！\n\n"
+                            for event in added_events:
+                                response_text += f"📅{event['title']}\n{event['time']}\n"
+                        
+                        if failed_events:
+                            response_text += "\n\n⚠️追加できなかった予定:\n"
+                            for event in failed_events:
+                                response_text += f"• {event['title']} - {event['reason']}\n"
+                    else:
+                        response_text = "❌予定を追加できませんでした。\n\n"
+                        for event in failed_events:
+                            response_text += f"• {event['title']} - {event['reason']}\n"
+                    
+                    return TextSendMessage(text=response_text)
+                else:
+                    # 単一イベントの場合（従来の処理）
+                    event_info = events_data
+                    from dateutil import parser
+                    start_datetime = parser.parse(event_info['start_datetime'])
+                    end_datetime = parser.parse(event_info['end_datetime'])
+                    # 既にタイムゾーンが設定されている場合はそのまま使用、そうでなければJSTを設定
+                    if start_datetime.tzinfo is None:
+                        start_datetime = self.jst.localize(start_datetime)
+                    if end_datetime.tzinfo is None:
+                        end_datetime = self.jst.localize(end_datetime)
+                    if not self.calendar_service or not self.ai_service:
+                        return TextSendMessage(text="カレンダーサービスまたはAIサービスが初期化されていません。")
+                    success, message, result = self.calendar_service.add_event(
+                        event_info['title'],
+                        start_datetime,
+                        end_datetime,
+                        event_info.get('description', ''),
+                        line_user_id=line_user_id,
+                        force_add=True
+                    )
+                    self.db_helper.delete_pending_event(line_user_id)
+                    response_text = self.ai_service.format_event_confirmation(success, message, result)
+                    return TextSendMessage(text=response_text)
         else:
             # 「はい」以外の返答でpending_eventsがあれば削除し、キャンセルメッセージを返す
             pending_json = self.db_helper.get_pending_event(line_user_id)
@@ -257,15 +379,37 @@ class LineBotHandler:
                         
                         response_text += "\nそれでも追加しますか？\n「はい」と返信してください。"
                         
-                        # 予定情報をpending_eventsに保存
-                        event_info = {
-                            'title': title,
-                            'start_datetime': start_datetime_str,
-                            'end_datetime': end_datetime_str,
-                            'description': description
-                        }
+                        # 全イベント（移動時間含む）をpending_eventsに保存
+                        all_events = []
+                        for date_info in dates:
+                            event_date_str = date_info.get('date')
+                            event_time_str = date_info.get('time')
+                            event_end_time_str = date_info.get('end_time')
+                            event_title = date_info.get('title', '予定')
+                            event_description = date_info.get('description', '')
+                            
+                            if not event_date_str or not event_time_str:
+                                continue
+                            
+                            # 終了時間が設定されていない場合は1時間後に設定
+                            if not event_end_time_str or event_end_time_str == event_time_str:
+                                from datetime import datetime, timedelta
+                                time_obj = datetime.strptime(event_time_str, "%H:%M")
+                                end_time_obj = time_obj + timedelta(hours=1)
+                                event_end_time_str = end_time_obj.strftime("%H:%M")
+                            
+                            event_datetime_str = f"{event_date_str}T{event_time_str}:00+09:00"
+                            event_end_datetime_str = f"{event_date_str}T{event_end_time_str}:00+09:00"
+                            
+                            all_events.append({
+                                'title': event_title,
+                                'start_datetime': event_datetime_str,
+                                'end_datetime': event_end_datetime_str,
+                                'description': event_description
+                            })
+                        
                         import json
-                        self.db_helper.save_pending_event(line_user_id, json.dumps(event_info))
+                        self.db_helper.save_pending_event(line_user_id, json.dumps(all_events))
                         
                         return TextSendMessage(text=response_text)
                     

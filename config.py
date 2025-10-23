@@ -25,10 +25,6 @@ class Config:
     @classmethod
     def validate_config(cls):
         """設定の妥当性をチェックします"""
-        # 一時的に検証を無効化
-        print("警告: 環境変数の検証をスキップしています")
-        return True
-        
         required_vars = [
             'LINE_CHANNEL_ACCESS_TOKEN',
             'LINE_CHANNEL_SECRET',
