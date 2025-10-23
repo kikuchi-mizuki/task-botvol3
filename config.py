@@ -42,4 +42,12 @@ class Config:
         # Google認証ファイルの存在確認
         if not os.path.exists(cls.GOOGLE_CREDENTIALS_FILE):
             print(f"警告: Google認証ファイル '{cls.GOOGLE_CREDENTIALS_FILE}' が見つかりません。")
-            print("Google Calendar APIを使用するには、credentials.jsonファイルが必要です。") 
+            print("Google Calendar APIを使用するには、credentials.jsonファイルが必要です。")
+            # Railway環境でのデバッグ情報
+            if os.getenv('RAILWAY_ENVIRONMENT'):
+                print(f"現在の作業ディレクトリ: {os.getcwd()}")
+                print(f"ディレクトリ内容: {os.listdir('.')}")
+                if 'GOOGLE_CREDENTIALS_FILE' in os.environ:
+                    print("GOOGLE_CREDENTIALS_FILE環境変数は設定されています")
+                else:
+                    print("GOOGLE_CREDENTIALS_FILE環境変数が設定されていません") 

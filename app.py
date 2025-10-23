@@ -1,10 +1,26 @@
 import os
 import logging
 logging.basicConfig(level=logging.INFO)
+
 # Railway環境でcredentials.jsonを書き出す
 if "GOOGLE_CREDENTIALS_FILE" in os.environ:
-    with open("credentials.json", "w") as f:
-        f.write(os.environ["GOOGLE_CREDENTIALS_FILE"])
+    try:
+        credentials_content = os.environ["GOOGLE_CREDENTIALS_FILE"]
+        with open("credentials.json", "w") as f:
+            f.write(credentials_content)
+        
+        # ファイルが正常に作成されたか確認
+        if os.path.exists("credentials.json"):
+            file_size = os.path.getsize("credentials.json")
+            logging.info(f"credentials.jsonファイルが正常に作成されました (サイズ: {file_size} bytes)")
+        else:
+            logging.error("credentials.jsonファイルの作成に失敗しました")
+            raise FileNotFoundError("credentials.jsonファイルが作成されませんでした")
+    except Exception as e:
+        logging.error(f"credentials.jsonファイルの作成に失敗しました: {e}")
+        raise
+else:
+    logging.warning("GOOGLE_CREDENTIALS_FILE環境変数が設定されていません")
 
 from flask import Flask, request, abort, render_template_string, redirect, url_for, session, Response, make_response
 from linebot import LineBotApi, WebhookHandler
