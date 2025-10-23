@@ -15,13 +15,14 @@ logger = logging.getLogger("line_bot_handler")
 
 class LineBotHandler:
     def __init__(self):
-        # 一時的にダミー値を設定
-        line_token = Config.LINE_CHANNEL_ACCESS_TOKEN or "dummy_token"
-        line_secret = Config.LINE_CHANNEL_SECRET or "dummy_secret"
-        
         # LINE Bot API クライアント初期化（標準）
-        self.line_bot_api = LineBotApi(line_token)
-        self.handler = WebhookHandler(line_secret)
+        if not Config.LINE_CHANNEL_ACCESS_TOKEN:
+            raise ValueError("LINE_CHANNEL_ACCESS_TOKEN environment variable is not set")
+        if not Config.LINE_CHANNEL_SECRET:
+            raise ValueError("LINE_CHANNEL_SECRET environment variable is not set")
+            
+        self.line_bot_api = LineBotApi(Config.LINE_CHANNEL_ACCESS_TOKEN)
+        self.handler = WebhookHandler(Config.LINE_CHANNEL_SECRET)
         
         # カスタムセッション設定をグローバルに適用
         import requests
