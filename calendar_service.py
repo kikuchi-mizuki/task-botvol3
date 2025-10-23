@@ -55,27 +55,76 @@ class GoogleCalendarService:
                 print(f"[DEBUG] トークンデータが取得できませんでした")
                 return None
             
+            # トークンデータの型を確認
+            print(f"[DEBUG] トークンデータの型: {type(token_data)}")
+            if hasattr(token_data, '__len__'):
+                print(f"[DEBUG] トークンデータの長さ: {len(token_data)}")
+            
+            credentials = None
+            
+            # まずpickle形式で試行
             try:
-                print(f"[DEBUG] トークンデータのデシリアライズ開始")
-                credentials = pickle.loads(token_data)
-                print(f"[DEBUG] トークンデータのデシリアライズ完了: credentials={credentials is not None}")
+                print(f"[DEBUG] pickle形式のトークンデータのデシリアライズ開始")
+                if isinstance(token_data, (bytes, bytearray)):
+                    credentials = pickle.loads(token_data)
+                else:
+                    # memoryviewやその他の型の場合はbytesに変換
+                    if hasattr(token_data, 'tobytes'):
+                        token_bytes = token_data.tobytes()
+                    else:
+                        token_bytes = bytes(token_data)
+                    credentials = pickle.loads(token_bytes)
+                print(f"[DEBUG] pickle形式のトークンデータのデシリアライズ完了: credentials={credentials is not None}")
                 
+            except Exception as pickle_error:
+                print(f"[DEBUG] pickle形式のトークン読み込みエラー: {pickle_error}")
+                
+                # JSON形式で試行
+                try:
+                    print(f"[DEBUG] JSON形式のトークンデータを試行")
+                    import json
+                    from google.oauth2.credentials import Credentials
+                    
+                    # トークンデータを文字列に変換
+                    if isinstance(token_data, (bytes, bytearray)):
+                        token_str = token_data.decode('utf-8')
+                    elif hasattr(token_data, 'tobytes'):
+                        token_str = token_data.tobytes().decode('utf-8')
+                    else:
+                        token_str = str(token_data)
+                    
+                    print(f"[DEBUG] JSON形式のトークンデータを取得")
+                    token_dict = json.loads(token_str)
+                    print(f"[DEBUG] JSON形式のトークンデータのパース完了")
+                    
+                    # Credentialsオブジェクトを作成
+                    credentials = Credentials.from_authorized_user_info(token_dict)
+                    print(f"[DEBUG] JSON形式からCredentialsオブジェクト作成完了")
+                    
+                except Exception as json_error:
+                    print(f"[DEBUG] JSON形式のトークン読み込みエラー: {json_error}")
+                    import traceback
+                    traceback.print_exc()
+                    return None
+            
+            if credentials:
                 # トークンの有効期限をチェック
-                if credentials and credentials.expired and credentials.refresh_token:
+                if credentials.expired and credentials.refresh_token:
                     print(f"[DEBUG] トークンのリフレッシュ開始")
-                    credentials.refresh(Request())
-                    print(f"[DEBUG] トークンのリフレッシュ完了")
-                    # 更新されたトークンをDBに保存
-                    updated_token_data = pickle.dumps(credentials)
-                    self.db_helper.save_google_token(line_user_id, updated_token_data)
-                    print(f"[DEBUG] 更新されたトークンをDBに保存完了")
+                    try:
+                        credentials.refresh(Request())
+                        print(f"[DEBUG] トークンのリフレッシュ完了")
+                        # 更新されたトークンをDBに保存
+                        updated_token_data = pickle.dumps(credentials)
+                        self.db_helper.save_google_token(line_user_id, updated_token_data)
+                        print(f"[DEBUG] 更新されたトークンをDBに保存完了")
+                    except Exception as refresh_error:
+                        print(f"[DEBUG] トークンのリフレッシュエラー: {refresh_error}")
+                        # リフレッシュに失敗してもcredentialsは返す
                 
                 return credentials
-                
-            except Exception as e:
-                print(f"[DEBUG] トークンの読み込みエラー: {e}")
-                import traceback
-                traceback.print_exc()
+            else:
+                print(f"[DEBUG] 認証情報の作成に失敗しました")
                 return None
                 
         except Exception as e:
