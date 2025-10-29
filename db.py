@@ -98,6 +98,7 @@ class DBHelper:
                     CREATE TABLE IF NOT EXISTS users (
                         line_user_id TEXT PRIMARY KEY,
                         google_token BYTEA,
+                        google_token_json TEXT,
                         created_at TEXT,
                         updated_at TEXT
                     )
@@ -124,6 +125,7 @@ class DBHelper:
                     CREATE TABLE IF NOT EXISTS users (
                         line_user_id TEXT PRIMARY KEY,
                         google_token BLOB,
+                        google_token_json TEXT,
                         created_at TEXT,
                         updated_at TEXT
                     )
@@ -179,6 +181,32 @@ class DBHelper:
             return row[0] if row else None
         
         return self._execute_with_retry(operation)
+
+    def save_google_token_json(self, line_user_id, json_str):
+        now = datetime.utcnow().isoformat()
+        c = self.conn.cursor()
+        if self.is_postgres:
+            c.execute('''
+                INSERT INTO users (line_user_id, google_token_json, created_at, updated_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (line_user_id) DO UPDATE SET google_token_json=EXCLUDED.google_token_json, updated_at=EXCLUDED.updated_at
+            ''', (line_user_id, json_str, now, now))
+        else:
+            c.execute('''
+                INSERT INTO users (line_user_id, google_token_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(line_user_id) DO UPDATE SET google_token_json=excluded.google_token_json, updated_at=excluded.updated_at
+            ''', (line_user_id, json_str, now, now))
+        self.conn.commit()
+
+    def load_google_token_json(self, line_user_id):
+        c = self.conn.cursor()
+        if self.is_postgres:
+            c.execute('SELECT google_token_json FROM users WHERE line_user_id=%s', (line_user_id,))
+        else:
+            c.execute('SELECT google_token_json FROM users WHERE line_user_id=?', (line_user_id,))
+        row = c.fetchone()
+        return row[0] if row else None
 
     # --- onetimes ---
     def create_onetime_code(self, line_user_id, code, expires_minutes=10):
@@ -284,6 +312,15 @@ class DBHelper:
             c.execute('UPDATE onetimes SET used = 1 WHERE code = ?', (code,))
         self.conn.commit()
 
+    def mark_onetime_used_by_line_user(self, line_user_id):
+        """ユーザーに紐づく未使用のワンタイムコードを使用済みにする"""
+        c = self.conn.cursor()
+        if self.is_postgres:
+            c.execute('UPDATE onetimes SET used = 1 WHERE line_user_id = %s', (line_user_id,))
+        else:
+            c.execute('UPDATE onetimes SET used = 1 WHERE line_user_id = ?', (line_user_id,))
+        self.conn.commit()
+
     def cleanup_expired_onetimes(self):
         """期限切れのワンタイムコードを削除"""
         c = self.conn.cursor()
@@ -311,9 +348,15 @@ class DBHelper:
         def operation():
             c = self.conn.cursor()
             if self.is_postgres:
-                c.execute('SELECT line_user_id FROM users WHERE google_token IS NOT NULL AND octet_length(google_token) > 0')
+                try:
+                    c.execute('SELECT line_user_id FROM users WHERE google_token_json IS NOT NULL AND length(google_token_json) > 0')
+                except Exception:
+                    c.execute('SELECT line_user_id FROM users WHERE google_token IS NOT NULL AND octet_length(google_token) > 0')
             else:
-                c.execute('SELECT line_user_id FROM users WHERE google_token IS NOT NULL AND length(google_token) > 0')
+                try:
+                    c.execute('SELECT line_user_id FROM users WHERE google_token_json IS NOT NULL AND length(google_token_json) > 0')
+                except Exception:
+                    c.execute('SELECT line_user_id FROM users WHERE google_token IS NOT NULL AND length(google_token) > 0')
             rows = c.fetchall()
             return [row[0] for row in rows]
         

@@ -1,5 +1,4 @@
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
@@ -29,104 +28,25 @@ class GoogleCalendarService:
     
     def _authenticate(self):
         """Google Calendar APIの認証を行います"""
-        # トークンファイルが存在する場合は読み込み
-        if os.path.exists('token.pickle'):
-            with open('token.pickle', 'rb') as token:
-                self.creds = pickle.load(token)
-            # 有効な認証情報がない場合はWebフローで認証する（run_local_serverは呼ばない）
-            if self.creds and self.creds.expired and self.creds.refresh_token:
-                self.creds.refresh(Request())
-        else:
-            self.creds = None
-        
-        if self.creds:
-            self.service = build('calendar', 'v3', credentials=self.creds)
-        else:
-            self.service = None  # 認証情報がなければserviceはNoneのまま
+        # アプリ全体のserviceは使わない（ユーザーごとに取得）
+        self.service = None
     
     def _get_user_credentials(self, line_user_id):
-        """ユーザーの認証トークンをDBから取得"""
+        """ユーザーの認証トークン(JSON)をDBから取得し、必要ならリフレッシュ"""
         try:
+            import json
             print(f"[DEBUG] _get_user_credentials開始: line_user_id={line_user_id}")
-            token_data = self.db_helper.get_google_token(line_user_id)
-            print(f"[DEBUG] DBから取得したトークンデータ: {token_data is not None}")
-            
-            if not token_data:
-                print(f"[DEBUG] トークンデータが取得できませんでした")
+            cred_json = self.db_helper.load_google_token_json(line_user_id)
+            if not cred_json:
+                print("[DEBUG] google_token_jsonが見つかりません")
                 return None
-            
-            # トークンデータの型を確認
-            print(f"[DEBUG] トークンデータの型: {type(token_data)}")
-            if hasattr(token_data, '__len__'):
-                print(f"[DEBUG] トークンデータの長さ: {len(token_data)}")
-            
-            credentials = None
-            
-            # まずpickle形式で試行
-            try:
-                print(f"[DEBUG] pickle形式のトークンデータのデシリアライズ開始")
-                if isinstance(token_data, (bytes, bytearray)):
-                    credentials = pickle.loads(token_data)
-                else:
-                    # memoryviewやその他の型の場合はbytesに変換
-                    if hasattr(token_data, 'tobytes'):
-                        token_bytes = token_data.tobytes()
-                    else:
-                        token_bytes = bytes(token_data)
-                    credentials = pickle.loads(token_bytes)
-                print(f"[DEBUG] pickle形式のトークンデータのデシリアライズ完了: credentials={credentials is not None}")
-                
-            except Exception as pickle_error:
-                print(f"[DEBUG] pickle形式のトークン読み込みエラー: {pickle_error}")
-                
-                # JSON形式で試行
-                try:
-                    print(f"[DEBUG] JSON形式のトークンデータを試行")
-                    import json
-                    from google.oauth2.credentials import Credentials
-                    
-                    # トークンデータを文字列に変換
-                    if isinstance(token_data, (bytes, bytearray)):
-                        token_str = token_data.decode('utf-8')
-                    elif hasattr(token_data, 'tobytes'):
-                        token_str = token_data.tobytes().decode('utf-8')
-                    else:
-                        token_str = str(token_data)
-                    
-                    print(f"[DEBUG] JSON形式のトークンデータを取得")
-                    token_dict = json.loads(token_str)
-                    print(f"[DEBUG] JSON形式のトークンデータのパース完了")
-                    
-                    # Credentialsオブジェクトを作成
-                    credentials = Credentials.from_authorized_user_info(token_dict)
-                    print(f"[DEBUG] JSON形式からCredentialsオブジェクト作成完了")
-                    
-                except Exception as json_error:
-                    print(f"[DEBUG] JSON形式のトークン読み込みエラー: {json_error}")
-                    import traceback
-                    traceback.print_exc()
-                    return None
-            
-            if credentials:
-                # トークンの有効期限をチェック
-                if credentials.expired and credentials.refresh_token:
-                    print(f"[DEBUG] トークンのリフレッシュ開始")
-                    try:
-                        credentials.refresh(Request())
-                        print(f"[DEBUG] トークンのリフレッシュ完了")
-                        # 更新されたトークンをDBに保存
-                        updated_token_data = pickle.dumps(credentials)
-                        self.db_helper.save_google_token(line_user_id, updated_token_data)
-                        print(f"[DEBUG] 更新されたトークンをDBに保存完了")
-                    except Exception as refresh_error:
-                        print(f"[DEBUG] トークンのリフレッシュエラー: {refresh_error}")
-                        # リフレッシュに失敗してもcredentialsは返す
-                
-                return credentials
-            else:
-                print(f"[DEBUG] 認証情報の作成に失敗しました")
-                return None
-                
+            creds = Credentials.from_authorized_user_info(json.loads(cred_json), self.SCOPES)
+            if not creds.valid and creds.refresh_token:
+                print("[DEBUG] トークンのリフレッシュ開始")
+                creds.refresh(Request())
+                self.db_helper.save_google_token_json(line_user_id, creds.to_json())
+                print("[DEBUG] トークンのリフレッシュ完了・保存")
+            return creds
         except Exception as e:
             print(f"[DEBUG] _get_user_credentialsで例外発生: {e}")
             import traceback

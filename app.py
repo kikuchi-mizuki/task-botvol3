@@ -30,10 +30,8 @@ from line_bot_handler import LineBotHandler
 from config import Config
 import json
 from datetime import datetime
-import pickle
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
 from db import DBHelper
 from werkzeug.middleware.proxy_fix import ProxyFix
 from ai_service import AIService
@@ -70,11 +68,45 @@ except Exception as e:
 # DBヘルパーの初期化
 db_helper = DBHelper()
 
+# OAuth設定
+SCOPES = ['https://www.googleapis.com/auth/calendar']
+CREDENTIALS_PATH = 'credentials.json'
+
+def _build_flow_with_redirect():
+    base_url = os.getenv('BASE_URL', '').rstrip('/')
+    if not base_url or not base_url.startswith('https://'):
+        raise ValueError("BASE_URLはhttpsで設定してください（例: https://your.app.domain）")
+    redirect_uri = f"{base_url}/oauth2callback"
+
+    flow = Flow.from_client_secrets_file(
+        CREDENTIALS_PATH,
+        scopes=SCOPES,
+        redirect_uri=redirect_uri
+    )
+    logger.info(f"[DEBUG] Redirect URI: {redirect_uri}")
+    return flow
+
+from linebot.models import TextSendMessage
+
+def safe_reply_or_push(event, messages):
+    try:
+        line_bot_handler.line_bot_api.reply_message(event.reply_token, messages)
+        return
+    except Exception as e:
+        logger.warning(f"reply失敗。pushに切替: {e}")
+        try:
+            line_bot_handler.line_bot_api.push_message(event.source.user_id, messages)
+        except Exception as ee:
+            logger.error(f"pushも失敗: {ee}")
+
 @app.route("/callback", methods=['POST'])
 def callback():
     """LINE Webhookのコールバックエンドポイント"""
     # リクエストヘッダーからX-Line-Signatureを取得
-    signature = request.headers['X-Line-Signature']
+    signature = request.headers.get('X-Line-Signature')
+    if not signature:
+        logger.warning("X-Line-Signature ヘッダなし")
+        abort(400)
 
     # リクエストボディを取得
     body = request.get_data(as_text=True)
@@ -100,66 +132,14 @@ def handle_message(event):
         # メッセージを処理してレスポンスを取得
         response = line_bot_handler.handle_message(event)
         
-        # LINEにメッセージを送信（SSLエラー対応のリトライ機能付き）
-        max_retries = 5
-        retry_delay = 2  # 秒
-        
-        for attempt in range(max_retries):
-            try:
-                line_bot_handler.line_bot_api.reply_message(
-                    event.reply_token,
-                    response
-                )
-                logger.info("メッセージの処理が完了しました")
-                break
-            except Exception as send_error:
-                error_msg = str(send_error)
-                logger.warning(f"メッセージ送信試行 {attempt + 1}/{max_retries} でエラー: {error_msg}")
-                
-                # SSLエラーの場合は特別な処理
-                if "SSL SYSCALL error" in error_msg or "EOF detected" in error_msg:
-                    logger.info(f"SSLエラーを検出、{retry_delay}秒後にリトライします")
-                    logger.info(f"SSLエラー詳細: {type(send_error).__name__}: {error_msg}")
-                    import time
-                    time.sleep(retry_delay)
-                    
-                    if attempt < max_retries - 1:
-                        retry_delay *= 2  # 指数バックオフ（次の試行用）
-                        logger.info(f"次のリトライまでの待機時間: {retry_delay}秒")
-                        continue
-                    else:
-                        logger.error("SSLエラーが継続し、最大リトライ回数に達しました")
-                        raise send_error
-                
-                # その他のエラーの場合
-                if attempt == max_retries - 1:
-                    logger.error(f"最大リトライ回数に達しました: {send_error}")
-                    raise send_error
-                
-                import time
-                time.sleep(1)  # 1秒待機してからリトライ
+        # LINEにメッセージを送信（reply失敗時はpushにフォールバック）
+        safe_reply_or_push(event, response)
         
     except Exception as e:
         logger.error(f"メッセージ処理でエラーが発生しました: {e}")
         # エラーが発生した場合はエラーメッセージを送信
         try:
-            # エラーメッセージ送信時もリトライ機能を適用
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    line_bot_handler.line_bot_api.reply_message(
-                        event.reply_token,
-                        TextSendMessage(text="申し訳ございません。エラーが発生しました。しばらく時間をおいて再度お試しください。")
-                    )
-                    logger.info("エラーメッセージの送信が完了しました")
-                    break
-                except Exception as reply_error:
-                    logger.warning(f"エラーメッセージ送信試行 {attempt + 1}/{max_retries} でエラー: {reply_error}")
-                    if attempt == max_retries - 1:
-                        logger.error(f"エラーメッセージの送信に失敗しました: {reply_error}")
-                    else:
-                        import time
-                        time.sleep(1)
+            safe_reply_or_push(event, TextSendMessage(text="申し訳ございません。エラーが発生しました。しばらく時間をおいて再度お試しください。"))
         except Exception as reply_error:
             logger.error(f"エラーメッセージの送信に失敗しました: {reply_error}")
 
@@ -181,7 +161,7 @@ def test():
         "config": {
             "line_configured": bool(Config.LINE_CHANNEL_ACCESS_TOKEN and Config.LINE_CHANNEL_SECRET),
             "openai_configured": bool(Config.OPENAI_API_KEY),
-            "google_configured": bool(os.path.exists(Config.GOOGLE_CREDENTIALS_FILE))
+            "google_configured": os.path.exists('credentials.json')
         }
     }
 
@@ -265,21 +245,7 @@ def onetime_login():
         
         try:
             # Google OAuth認証フローを開始
-            SCOPES = ['https://www.googleapis.com/auth/calendar']
-            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-            # リダイレクトURIを環境変数から取得
-            import os
-            base_url = os.getenv('BASE_URL')
-            if not base_url:
-                raise ValueError("BASE_URL環境変数が設定されていません")
-            # 末尾のスラッシュを削除してから結合
-            base_url = base_url.rstrip('/')
-            flow.redirect_uri = base_url + '/oauth2callback'
-            
-            # デバッグ用ログ（リダイレクトURIを表示）
-            logger.info(f"[DEBUG] 設定されたリダイレクトURI: {flow.redirect_uri}")
-            logger.info(f"[DEBUG] BASE_URL: {base_url}")
-            
+            flow = _build_flow_with_redirect()
             auth_url, state = flow.authorization_url(
                 access_type='offline',
                 include_granted_scopes='true',
@@ -323,44 +289,14 @@ def oauth2callback():
         if not line_user_id:
             return make_response("認証セッションが無効です", 400)
         # 新たにflowを生成
-        SCOPES = ['https://www.googleapis.com/auth/calendar']
-        flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-        # リダイレクトURIを環境変数から取得
-        import os
-        base_url = os.getenv('BASE_URL')
-        if not base_url:
-            raise ValueError("BASE_URL環境変数が設定されていません")
-        # 末尾のスラッシュを削除してから結合
-        base_url = base_url.rstrip('/')
-        flow.redirect_uri = base_url + '/oauth2callback'
-        
-        # デバッグ用ログ（リダイレクトURIを表示）
-        logger.info(f"[DEBUG] oauth2callback リダイレクトURI: {flow.redirect_uri}")
-        logger.info(f"[DEBUG] oauth2callback BASE_URL: {base_url}")
-        # --- ここまで ---
-        # 認証コードを取得してトークンを交換（スコープ警告を無視）
-        import warnings
-        import oauthlib.oauth2.rfc6749.parameters
-        # スコープ検証を無効化
-        original_validate_token_parameters = oauthlib.oauth2.rfc6749.parameters.validate_token_parameters
-        def dummy_validate_token_parameters(params):
-            return True
-        oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = dummy_validate_token_parameters
-        
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                flow.fetch_token(authorization_response=request.url)
-        finally:
-            # 元の関数を復元
-            oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = original_validate_token_parameters
-            
+        flow = _build_flow_with_redirect()
+        flow.fetch_token(authorization_response=request.url)
+
         credentials = flow.credentials
-        # トークンをDBに保存
-        token_data = pickle.dumps(credentials)
-        db_helper.save_google_token(line_user_id, token_data)
-        # ワンタイムコードを使用済みに
-        db_helper.mark_onetime_code_used(line_user_id)
+        # JSONで保存
+        db_helper.save_google_token_json(line_user_id, credentials.to_json())
+        # ワンタイム（state）を使い切った扱いとしてユーザーでマーク
+        db_helper.mark_onetime_used_by_line_user(line_user_id)
         # 認証完了画面
         html = "<h2>Google認証が完了しました。LINEに戻って操作を続けてください。</h2>"
         return make_response(html, 200)
@@ -458,32 +394,39 @@ def debug_ai_test():
     """
     return render_template_string(test_form)
 
+def _require_bearer():
+    secret = os.environ.get('DAILY_AGENDA_SECRET_TOKEN')
+    auth = request.headers.get('Authorization', '')
+    if not secret or not auth.startswith('Bearer '):
+        abort(403)
+    token = auth.split(' ', 1)[1].strip()
+    if token != secret:
+        abort(403)
+
 @app.route('/api/send_daily_agenda', methods=['POST'])
 def api_send_daily_agenda():
     import os
     from flask import request, jsonify
-    secret_token = os.environ.get('DAILY_AGENDA_SECRET_TOKEN')
-    req_token = request.args.get('token')
-    if not secret_token or req_token != secret_token:
-        return jsonify({'status': 'error', 'message': 'Invalid or missing token'}), 403
+    _require_bearer()
     try:
         send_daily_agenda()
         return jsonify({'status': 'ok'})
     except Exception as e:
+        logger.exception("send_daily_agenda失敗")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/debug_users', methods=['GET'])
 def api_debug_users():
-    import os
-    from flask import request, jsonify
-    secret_token = os.environ.get('DAILY_AGENDA_SECRET_TOKEN')
-    req_token = request.args.get('token')
-    if not secret_token or req_token != secret_token:
-        return jsonify({'status': 'error', 'message': 'Invalid or missing token'}), 403
+    from flask import jsonify
+    _require_bearer()
     from db import DBHelper
     db = DBHelper()
     c = db.conn.cursor()
-    c.execute('SELECT line_user_id, LENGTH(google_token), created_at, updated_at FROM users')
+    try:
+        c.execute('SELECT line_user_id, LENGTH(google_token_json), created_at, updated_at FROM users')
+    except Exception:
+        # 旧スキーマ互換
+        c.execute('SELECT line_user_id, LENGTH(google_token), created_at, updated_at FROM users')
     rows = c.fetchall()
     return jsonify({'users': rows})
 
@@ -494,11 +437,11 @@ if __name__ == "__main__":
     # SSL設定の確認
     import ssl
     logger.info(f"SSL バージョン: {ssl.OPENSSL_VERSION}")
-    logger.info(f"利用可能なSSLプロトコル: {ssl._PROTOCOL_NAMES}")
     
     # ネットワーク設定の確認
     import requests
+    import urllib3
     logger.info(f"Requests バージョン: {requests.__version__}")
-    logger.info(f"urllib3 バージョン: {requests.packages.urllib3.__version__}")
+    logger.info(f"urllib3 バージョン: {urllib3.__version__}")
     
     app.run(debug=True, host='0.0.0.0', port=port) 
