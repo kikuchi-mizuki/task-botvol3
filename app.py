@@ -1,26 +1,39 @@
 import os
 import logging
+import base64
+import json
 logging.basicConfig(level=logging.INFO)
 
-# Railway環境でcredentials.jsonを書き出す
-if "GOOGLE_CREDENTIALS_FILE" in os.environ:
+# Railway環境でcredentials.jsonを書き出す（Base64/プレーン両対応）
+def write_credentials():
+    val = os.environ.get("GOOGLE_CREDENTIALS_FILE")
+    if not val:
+        logging.warning("GOOGLE_CREDENTIALS_FILE環境変数が設定されていません")
+        return False
     try:
-        credentials_content = os.environ["GOOGLE_CREDENTIALS_FILE"]
-        with open("credentials.json", "w") as f:
-            f.write(credentials_content)
+        # Base64かプレーンJSONかを自動判定
+        content = None
+        try:
+            decoded = base64.b64decode(val).decode("utf-8")
+            json.loads(decoded)  # JSONとして解釈できるか確認
+            content = decoded
+            logging.info("credentials: Base64を検出してデコードしました")
+        except Exception:
+            json.loads(val)      # プレーンJSONか確認
+            content = val
+            logging.info("credentials: プレーンJSONとして検出しました")
         
-        # ファイルが正常に作成されたか確認
-        if os.path.exists("credentials.json"):
-            file_size = os.path.getsize("credentials.json")
-            logging.info(f"credentials.jsonファイルが正常に作成されました (サイズ: {file_size} bytes)")
-        else:
-            logging.error("credentials.jsonファイルの作成に失敗しました")
-            raise FileNotFoundError("credentials.jsonファイルが作成されませんでした")
+        with open("credentials.json", "w") as f:
+            f.write(content)
+        
+        size = os.path.getsize("credentials.json")
+        logging.info(f"credentials.jsonファイルが正常に作成されました (サイズ: {size} bytes)")
+        return True
     except Exception as e:
         logging.error(f"credentials.jsonファイルの作成に失敗しました: {e}")
         raise
-else:
-    logging.warning("GOOGLE_CREDENTIALS_FILE環境変数が設定されていません")
+
+write_credentials()
 
 from flask import Flask, request, abort, render_template_string, redirect, url_for, session, Response, make_response
 from linebot import LineBotApi, WebhookHandler
@@ -293,7 +306,7 @@ def onetime_login():
             logging.error(f"Google OAuth認証エラー: {e}")
             html = '''
             <!DOCTYPE html>
-            <R>
+            <html>
             <head>
                 <title>認証エラー</title>
                 <meta charset="utf-8">

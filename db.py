@@ -118,6 +118,14 @@ class DBHelper:
                         created_at TEXT
                     )
                 ''')
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS daily_sends (
+                        line_user_id TEXT NOT NULL,
+                        target_date TEXT NOT NULL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(line_user_id, target_date)
+                    )
+                ''')
             else:
                 # SQLite
                 c.execute('''
@@ -142,6 +150,14 @@ class DBHelper:
                         line_user_id TEXT PRIMARY KEY,
                         event_json TEXT,
                         created_at TEXT
+                    )
+                ''')
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS daily_sends (
+                        line_user_id TEXT NOT NULL,
+                        target_date TEXT NOT NULL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(line_user_id, target_date)
                     )
                 ''')
             self.conn.commit()
@@ -411,4 +427,30 @@ class DBHelper:
             c.execute('DELETE FROM pending_events WHERE line_user_id=%s', (line_user_id,))
         else:
             c.execute('DELETE FROM pending_events WHERE line_user_id=?', (line_user_id,))
+        self.conn.commit()
+
+    def daily_send_already_sent(self, line_user_id, target_date):
+        """二重送信チェック"""
+        c = self.conn.cursor()
+        if self.is_postgres:
+            c.execute('SELECT 1 FROM daily_sends WHERE line_user_id=%s AND target_date=%s', (line_user_id, target_date))
+        else:
+            c.execute('SELECT 1 FROM daily_sends WHERE line_user_id=? AND target_date=?', (line_user_id, target_date))
+        return c.fetchone() is not None
+
+    def mark_daily_sent(self, line_user_id, target_date):
+        """送信済みマーク"""
+        c = self.conn.cursor()
+        now = datetime.utcnow().isoformat()
+        if self.is_postgres:
+            c.execute('''
+                INSERT INTO daily_sends (line_user_id, target_date, created_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT(line_user_id, target_date) DO NOTHING
+            ''', (line_user_id, target_date, now))
+        else:
+            c.execute('''
+                INSERT OR IGNORE INTO daily_sends (line_user_id, target_date, created_at)
+                VALUES (?, ?, ?)
+            ''', (line_user_id, target_date, now))
         self.conn.commit()
