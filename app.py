@@ -31,7 +31,7 @@ from config import Config
 import json
 from datetime import datetime
 import pickle
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from db import DBHelper
@@ -181,7 +181,7 @@ def test():
         "config": {
             "line_configured": bool(Config.LINE_CHANNEL_ACCESS_TOKEN and Config.LINE_CHANNEL_SECRET),
             "openai_configured": bool(Config.OPENAI_API_KEY),
-            "google_configured": bool(os.path.exists(Config.GOOGLE_CREDENTIALS_FILE))
+            "google_configured": bool(os.path.exists('credentials.json'))
         }
     }
 
@@ -266,7 +266,7 @@ def onetime_login():
         try:
             # Google OAuth認証フローを開始
             SCOPES = ['https://www.googleapis.com/auth/calendar']
-            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+            flow = Flow.from_client_secrets_file('credentials.json', scopes=SCOPES)
             # リダイレクトURIを環境変数から取得
             import os
             base_url = os.getenv('BASE_URL')
@@ -283,10 +283,11 @@ def onetime_login():
             auth_url, state = flow.authorization_url(
                 access_type='offline',
                 include_granted_scopes='true',
-                prompt='consent'
+                prompt='consent',
+                state=None  # Flow が自前で付与
             )
-            # stateとline_user_idをDBに保存
-            db_helper.save_oauth_state(state, line_user_id)
+            # stateとline_user_idをDBに保存（Flow の oauth2session.state を使用）
+            db_helper.save_oauth_state(flow.oauth2session.state, line_user_id)
             return redirect(auth_url)
         except Exception as e:
             logging.error(f"Google OAuth認証エラー: {e}")
@@ -322,9 +323,10 @@ def oauth2callback():
         line_user_id = db_helper.get_line_user_id_by_state(state)
         if not line_user_id:
             return make_response("認証セッションが無効です", 400)
+        
         # 新たにflowを生成
         SCOPES = ['https://www.googleapis.com/auth/calendar']
-        flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+        flow = Flow.from_client_secrets_file('credentials.json', scopes=SCOPES)
         # リダイレクトURIを環境変数から取得
         import os
         base_url = os.getenv('BASE_URL')
@@ -337,30 +339,16 @@ def oauth2callback():
         # デバッグ用ログ（リダイレクトURIを表示）
         logger.info(f"[DEBUG] oauth2callback リダイレクトURI: {flow.redirect_uri}")
         logger.info(f"[DEBUG] oauth2callback BASE_URL: {base_url}")
-        # --- ここまで ---
-        # 認証コードを取得してトークンを交換（スコープ警告を無視）
-        import warnings
-        import oauthlib.oauth2.rfc6749.parameters
-        # スコープ検証を無効化
-        original_validate_token_parameters = oauthlib.oauth2.rfc6749.parameters.validate_token_parameters
-        def dummy_validate_token_parameters(params):
-            return True
-        oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = dummy_validate_token_parameters
         
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                flow.fetch_token(authorization_response=request.url)
-        finally:
-            # 元の関数を復元
-            oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = original_validate_token_parameters
-            
+        # 認証コードを取得してトークンを交換（Flowはスコープ検証不要）
+        flow.fetch_token(authorization_response=request.url)
+        
         credentials = flow.credentials
         # トークンをDBに保存
         token_data = pickle.dumps(credentials)
         db_helper.save_google_token(line_user_id, token_data)
-        # ワンタイムコードを使用済みに
-        db_helper.mark_onetime_code_used(line_user_id)
+        # ワンタイムコードを使用済みに（line_user_idから消込）
+        db_helper.mark_onetime_used_by_line_user(line_user_id)
         # 認証完了画面
         html = "<h2>Google認証が完了しました。LINEに戻って操作を続けてください。</h2>"
         return make_response(html, 200)
@@ -463,7 +451,8 @@ def api_send_daily_agenda():
     import os
     from flask import request, jsonify
     secret_token = os.environ.get('DAILY_AGENDA_SECRET_TOKEN')
-    req_token = request.args.get('token')
+    # ヘッダ優先、なければクエリ or フォーム
+    req_token = request.headers.get('X-Auth-Token') or request.args.get('token') or request.form.get('token')
     if not secret_token or req_token != secret_token:
         return jsonify({'status': 'error', 'message': 'Invalid or missing token'}), 403
     try:
@@ -491,14 +480,12 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     logger.info("LINE Calendar Bot を起動しています...")
     
-    # SSL設定の確認
-    import ssl
-    logger.info(f"SSL バージョン: {ssl.OPENSSL_VERSION}")
-    logger.info(f"利用可能なSSLプロトコル: {ssl._PROTOCOL_NAMES}")
-    
     # ネットワーク設定の確認
+    import ssl
     import requests
+    import urllib3
+    logger.info(f"SSL バージョン: {ssl.OPENSSL_VERSION}")
     logger.info(f"Requests バージョン: {requests.__version__}")
-    logger.info(f"urllib3 バージョン: {requests.packages.urllib3.__version__}")
+    logger.info(f"urllib3 バージョン: {urllib3.__version__}")
     
     app.run(debug=True, host='0.0.0.0', port=port) 

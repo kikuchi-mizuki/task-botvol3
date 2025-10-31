@@ -284,6 +284,15 @@ class DBHelper:
             c.execute('UPDATE onetimes SET used = 1 WHERE code = ?', (code,))
         self.conn.commit()
 
+    def mark_onetime_used_by_line_user(self, line_user_id):
+        """LINEユーザーIDからワンタイムコードを使用済みにマーク"""
+        c = self.conn.cursor()
+        if self.is_postgres:
+            c.execute('UPDATE onetimes SET used = 1 WHERE line_user_id = %s AND used = 0', (line_user_id,))
+        else:
+            c.execute('UPDATE onetimes SET used = 1 WHERE line_user_id = ? AND used = 0', (line_user_id,))
+        self.conn.commit()
+
     def cleanup_expired_onetimes(self):
         """期限切れのワンタイムコードを削除"""
         c = self.conn.cursor()
