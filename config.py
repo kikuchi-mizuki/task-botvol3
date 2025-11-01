@@ -39,9 +39,11 @@ class Config:
         if missing_vars:
             raise ValueError(f"必要な環境変数が設定されていません: {', '.join(missing_vars)}")
         
-        # Google認証ファイルの存在確認
-        if not os.path.exists(cls.GOOGLE_CREDENTIALS_FILE):
-            print(f"警告: Google認証ファイル '{cls.GOOGLE_CREDENTIALS_FILE}' が見つかりません。")
+        # Google認証ファイルの存在確認（実際のファイルパスでチェック）
+        # Railway環境では write_credentials() で credentials.json を生成するため、常に 'credentials.json' をチェック
+        credentials_file = 'credentials.json'
+        if not os.path.exists(credentials_file):
+            print(f"警告: Google認証ファイル '{credentials_file}' が見つかりません。")
             print("Google Calendar APIを使用するには、credentials.jsonファイルが必要です。")
             # Railway環境でのデバッグ情報
             if os.getenv('RAILWAY_ENVIRONMENT'):
