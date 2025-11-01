@@ -619,22 +619,24 @@ class LineBotHandler:
                         # 場所フィルタリング
                         if location:
                             print(f"[DEBUG] 場所フィルタ適用: {location}")
-                            # その日付に「場所」を含む予定があるかチェック
+                            # その日付に「場所」を含む終日予定があるかチェック
                             has_location_event = False
                             for event in all_events:
                                 event_location = event.get('location', '')
                                 event_title = event.get('title', '')
-                                if location in event_location or location in event_title:
+                                is_all_day = event.get('is_all_day', False)
+                                # 終日予定のタイトルに場所が含まれている場合のみ
+                                if is_all_day and (location in event_location or location in event_title):
                                     has_location_event = True
-                                    print(f"[DEBUG] 場所を含む予定を発見: {event}")
+                                    print(f"[DEBUG] 場所を含む終日予定を発見: {event}")
                                     break
                             
-                            # その日に「場所」を含む予定がない場合はスキップ
+                            # その日に「場所」を含む終日予定がない場合はスキップ
                             if not has_location_event:
-                                print(f"[DEBUG] 日付{i+1}には場所を含む予定がないためスキップ")
+                                print(f"[DEBUG] 日付{i+1}には場所を含む終日予定がないためスキップ")
                                 continue
                             
-                            # 場所を含む予定がある場合、全日の予定を使う
+                            # 場所を含む終日予定がある場合、全日の予定を使う
                             events = all_events
                             print(f"[DEBUG] 場所フィルタ通過、全日の予定を使用: {len(events)}件")
                         else:
