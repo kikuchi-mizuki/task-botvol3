@@ -619,18 +619,24 @@ class LineBotHandler:
                         # 場所フィルタリング
                         if location:
                             print(f"[DEBUG] 場所フィルタ適用: {location}")
-                            filtered_events = []
+                            # その日付に「場所」を含む予定があるかチェック
+                            has_location_event = False
                             for event in all_events:
-                                # locationフィールドまたはtitleに場所が含まれている場合のみカウント
                                 event_location = event.get('location', '')
                                 event_title = event.get('title', '')
                                 if location in event_location or location in event_title:
-                                    filtered_events.append(event)
-                                    print(f"[DEBUG] 予定をマッチ: {event}")
-                                else:
-                                    print(f"[DEBUG] 予定を除外: {event}")
-                            events = filtered_events
-                            print(f"[DEBUG] フィルタ後予定数: {len(events)}")
+                                    has_location_event = True
+                                    print(f"[DEBUG] 場所を含む予定を発見: {event}")
+                                    break
+                            
+                            # その日に「場所」を含む予定がない場合はスキップ
+                            if not has_location_event:
+                                print(f"[DEBUG] 日付{i+1}には場所を含む予定がないためスキップ")
+                                continue
+                            
+                            # 場所を含む予定がある場合、全日の予定を使う
+                            events = all_events
+                            print(f"[DEBUG] 場所フィルタ通過、全日の予定を使用: {len(events)}件")
                         else:
                             events = all_events
                         
@@ -663,7 +669,7 @@ class LineBotHandler:
                             'free_slots': free_slots
                         })
                         print(f"[DEBUG] 日付{i+1}のfree_slots_by_frame追加完了")
-                        
+                    
                     except Exception as e:
                         print(f"[DEBUG] 日付{i+1}処理でエラー: {e}")
                         import traceback
