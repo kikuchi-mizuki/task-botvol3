@@ -270,6 +270,14 @@ class LineBotHandler:
             if not self.ai_service:
                 return TextSendMessage(text="AIサービスの初期化に失敗しました。OpenAI APIキーを設定してください。")
             
+            # 月のみ入力パターンをチェック
+            month_match = re.search(r'(\d{1,2})月', user_message.strip())
+            if month_match and not re.search(r'\d{1,2}日', user_message):
+                # 「11月」のような月のみ入力の場合、その月の全期間を展開
+                month_num = int(month_match.group(1))
+                if 1 <= month_num <= 12:
+                    return self._handle_month_availability(month_num, line_user_id)
+            
             # AIを使ってメッセージの意図を判断
             ai_result = self.ai_service.extract_dates_and_times(user_message)
             print(f"[DEBUG] ai_result: {ai_result}")
@@ -516,6 +524,47 @@ class LineBotHandler:
         except Exception as e:
             print(f"[DEBUG] 複数予定処理エラー: {e}")
             return TextSendMessage(text=f"予定の処理中にエラーが発生しました: {str(e)}")
+    
+    def _handle_month_availability(self, month_num, line_user_id):
+        """月全体の空き時間を処理します"""
+        import calendar
+        try:
+            now_jst = datetime.now(self.jst)
+            
+            # 現在年を取得、過去月の場合は来年
+            year = now_jst.year
+            if month_num < now_jst.month:
+                year += 1
+            elif month_num == now_jst.month and now_jst.day > 1:
+                year = now_jst.year  # 今月以降
+            
+            # 月の日数と最初・最後の日を取得
+            _, last_day = calendar.monthrange(year, month_num)
+            first_date = datetime(year, month_num, 1)
+            last_date = datetime(year, month_num, last_day)
+            
+            # dates_infoを作成（その月の全日付）
+            dates_info = []
+            current_date = first_date.date()
+            while current_date <= last_date.date():
+                date_str = current_date.isoformat()
+                dates_info.append({
+                    'date': date_str,
+                    'time': '08:00',
+                    'end_time': '22:00'
+                })
+                current_date += timedelta(days=1)
+            
+            print(f"[DEBUG] 月全体の空き時間処理: {year}年{month_num}月 ({len(dates_info)}日)")
+            
+            # 通常の空き時間チェック処理を呼び出し
+            return self._handle_availability_check(dates_info, line_user_id)
+            
+        except Exception as e:
+            print(f"[DEBUG] 月全体の空き時間処理でエラー: {e}")
+            import traceback
+            traceback.print_exc()
+            return TextSendMessage(text=f"月の空き時間確認でエラーが発生しました: {str(e)}")
     
     def _handle_availability_check(self, dates_info, line_user_id):
         """空き時間確認を処理します"""
