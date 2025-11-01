@@ -22,10 +22,10 @@ def write_credentials():
             json.loads(val)      # プレーンJSONか確認
             content = val
             logging.info("credentials: プレーンJSONとして検出しました")
-        
+
         with open("credentials.json", "w") as f:
             f.write(content)
-        
+
         size = os.path.getsize("credentials.json")
         logging.info(f"credentials.jsonファイルが正常に作成されました (サイズ: {size} bytes)")
         return True

@@ -429,8 +429,9 @@ class DBHelper:
             c.execute('DELETE FROM pending_events WHERE line_user_id=?', (line_user_id,))
         self.conn.commit()
 
-    def daily_send_already_sent(self, line_user_id, target_date):
-        """二重送信チェック"""
+    # --- daily_sends ---
+    def already_sent_daily(self, line_user_id, target_date):
+        """既に指定日の配信が完了しているかチェック"""
         c = self.conn.cursor()
         if self.is_postgres:
             c.execute('SELECT 1 FROM daily_sends WHERE line_user_id=%s AND target_date=%s', (line_user_id, target_date))
@@ -439,14 +440,14 @@ class DBHelper:
         return c.fetchone() is not None
 
     def mark_daily_sent(self, line_user_id, target_date):
-        """送信済みマーク"""
+        """指定日の配信完了をマーク"""
         c = self.conn.cursor()
         now = datetime.utcnow().isoformat()
         if self.is_postgres:
             c.execute('''
                 INSERT INTO daily_sends (line_user_id, target_date, created_at)
                 VALUES (%s, %s, %s)
-                ON CONFLICT(line_user_id, target_date) DO NOTHING
+                ON CONFLICT (line_user_id, target_date) DO NOTHING
             ''', (line_user_id, target_date, now))
         else:
             c.execute('''
