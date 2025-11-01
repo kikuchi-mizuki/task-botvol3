@@ -37,9 +37,16 @@ def write_credentials():
         return True
     except Exception as e:
         logging.error(f"credentials.jsonファイルの作成に失敗しました: {e}")
+        import traceback
+        logging.error(f"エラー詳細: {traceback.format_exc()}")
         raise
 
-write_credentials()
+# credentials.jsonの作成を試行（エラー時はアプリ起動を継続）
+try:
+    write_credentials()
+except Exception as e:
+    logging.error(f"起動時にcredentials.jsonの作成に失敗しました: {e}")
+    logging.warning("Google Calendar認証は使用できませんが、アプリケーションは起動します")
 
 from flask import Flask, request, abort, render_template_string, redirect, make_response
 from linebot import LineBotApi, WebhookHandler
@@ -300,9 +307,14 @@ def onetime_login():
         try:
             # Google OAuth認証フローを開始
             SCOPES = ['https://www.googleapis.com/auth/calendar']
+            
+            # credentials.jsonの存在確認
+            import os
+            if not os.path.exists('credentials.json'):
+                raise FileNotFoundError("credentials.jsonファイルが見つかりません")
+            
             flow = Flow.from_client_secrets_file('credentials.json', scopes=SCOPES)
             # リダイレクトURIを環境変数から取得
-            import os
             base_url = os.getenv('BASE_URL')
             if not base_url:
                 raise ValueError("BASE_URL環境変数が設定されていません")
@@ -325,6 +337,8 @@ def onetime_login():
             return redirect(auth_url)
         except Exception as e:
             logging.error(f"Google OAuth認証エラー: {e}")
+            import traceback
+            logging.error(f"エラー詳細: {traceback.format_exc()}")
             html = '''
             <!DOCTYPE html>
             <html>
@@ -340,12 +354,13 @@ def onetime_login():
                 <h1>認証エラー</h1>
                 <div class="error">
                     Google認証の初期化に失敗しました。<br>
-                    しばらく時間をおいて再度お試しください。
+                    しばらく時間をおいて再度お試しください。<br><br>
+                    エラー詳細: {{ error_message }}
                 </div>
             </body>
             </html>
             '''
-            return render_template_string(html)
+            return render_template_string(html, error_message=str(e))
 
 @app.route('/oauth2callback')
 def oauth2callback():
@@ -367,9 +382,14 @@ def oauth2callback():
         
         # 新たにflowを生成
         SCOPES = ['https://www.googleapis.com/auth/calendar']
+        
+        # credentials.jsonの存在確認
+        import os
+        if not os.path.exists('credentials.json'):
+            raise FileNotFoundError("credentials.jsonファイルが見つかりません")
+        
         flow = Flow.from_client_secrets_file('credentials.json', scopes=SCOPES)
         # リダイレクトURIを環境変数から取得
-        import os
         base_url = os.getenv('BASE_URL')
         if not base_url:
             raise ValueError("BASE_URL環境変数が設定されていません")
