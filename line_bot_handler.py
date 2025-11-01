@@ -673,20 +673,28 @@ class LineBotHandler:
                             if travel_time_minutes and travel_time_minutes > 0:
                                 print(f"[DEBUG] 移動時間フィルタ適用: {travel_time_minutes}分")
                                 filtered_free_slots = []
+                                travel_delta = timedelta(minutes=travel_time_minutes)
                                 for slot in free_slots:
                                     slot_start_str = slot['start']
                                     slot_end_str = slot['end']
                                     # 開始時刻と終了時刻をdatetimeに変換
                                     slot_start_parsed = jst.localize(datetime.strptime(f"{date_str} {slot_start_str}", "%Y-%m-%d %H:%M"))
                                     slot_end_parsed = jst.localize(datetime.strptime(f"{date_str} {slot_end_str}", "%Y-%m-%d %H:%M"))
-                                    # 移動時間分の余裕があるかチェック
-                                    required_duration = timedelta(minutes=travel_time_minutes * 2)  # 往復
-                                    actual_duration = slot_end_parsed - slot_start_parsed
-                                    if actual_duration >= required_duration:
-                                        filtered_free_slots.append(slot)
-                                        print(f"[DEBUG] 移動時間対応可能な空き時間: {slot}")
+                                    # 実際に予定を入れられる時間を計算（移動時間を除く）
+                                    available_start = slot_start_parsed + travel_delta
+                                    available_end = slot_end_parsed - travel_delta
+                                    
+                                    # 利用可能時間があるかチェック
+                                    if available_start < available_end:
+                                        # 利用可能時間を作成
+                                        available_slot = {
+                                            'start': available_start.strftime('%H:%M'),
+                                            'end': available_end.strftime('%H:%M')
+                                        }
+                                        filtered_free_slots.append(available_slot)
+                                        print(f"[DEBUG] 移動時間考慮後の利用可能時間: {available_slot} (元の空き時間: {slot_start_str}〜{slot_end_str})")
                                     else:
-                                        print(f"[DEBUG] 移動時間不足で除外: {slot}")
+                                        print(f"[DEBUG] 移動時間不足で除外: {slot_start_str}〜{slot_end_str}")
                                 free_slots = filtered_free_slots
                                 print(f"[DEBUG] 移動時間フィルタ後: {len(free_slots)}件")
                         else:
