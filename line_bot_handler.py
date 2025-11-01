@@ -648,7 +648,17 @@ class LineBotHandler:
                             events = filtered_events
                             print(f"[DEBUG] 場所フィルタ通過、終日マーカーを除いた予定を使用: {len(events)}件")
                         else:
-                            events = all_events
+                            # 場所フィルタがない場合でも、終日マーカーは空き時間計算から除外
+                            filtered_events = []
+                            for event in all_events:
+                                is_all_day = event.get('is_all_day', False)
+                                # 終日予定は場所マーカーとして空き時間計算から除外
+                                if not is_all_day:
+                                    filtered_events.append(event)
+                                else:
+                                    print(f"[DEBUG] 終日マーカーを除外: {event}")
+                            events = filtered_events
+                            print(f"[DEBUG] 終日マーカーを除いた予定を使用: {len(events)}件")
                         
                         # 8:00〜22:00の間で空き時間を返す
                         day_start = "08:00"
