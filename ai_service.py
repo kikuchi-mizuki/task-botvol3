@@ -524,8 +524,11 @@ class AIService:
         
         print(f"[DEBUG] new_dates(正規表現追加後): {new_dates}")
         
-        # 移動時間の自動追加処理
-        new_dates = self._add_travel_time(new_dates, original_text)
+        # 移動時間の自動追加処理（予定追加の場合のみ）
+        if parsed.get('task_type') == 'add_event':
+            new_dates = self._add_travel_time(new_dates, original_text)
+        else:
+            print(f"[DEBUG] 空き時間確認のため、移動時間の自動追加をスキップ")
         
         parsed['dates'] = new_dates
         return parsed
