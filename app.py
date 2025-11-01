@@ -2,7 +2,10 @@ import os
 import logging
 import base64
 import json
-logging.basicConfig(level=logging.INFO)
+
+# ログレベルを環境変数で制御
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
+logging.basicConfig(level=LOG_LEVEL)
 
 # Railway環境でcredentials.jsonを書き出す（Base64/プレーン両対応）
 def write_credentials():
@@ -54,7 +57,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from ai_service import AIService
 from send_daily_agenda import send_daily_agenda
 
-# ログ設定
+# ログ設定（環境変数でレベル制御）
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -70,10 +73,14 @@ app.config.update(
 # ProxyFixを追加
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
-# HSTSヘッダーを追加
+# セキュリティヘッダーを追加
 @app.after_request
 def set_security_headers(resp):
     resp.headers['Strict-Transport-Security'] = 'max-age=63072000; includeSubDomains; preload'
+    resp.headers['Content-Security-Policy'] = "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    resp.headers['X-Frame-Options'] = 'DENY'
+    resp.headers['Referrer-Policy'] = 'no-referrer'
     return resp
 
 # 設定の検証
@@ -201,6 +208,8 @@ def health():
 @app.route("/test", methods=['GET'])
 def test():
     """テスト用エンドポイント"""
+    if not ENABLE_DEBUG_ENDPOINTS:
+        return ("Not Found", 404)
     return {
         "message": "LINE Calendar Bot Test",
         "config": {
@@ -343,11 +352,18 @@ def oauth2callback():
     """Google OAuth認証コールバック"""
     from flask import make_response
     try:
-        # stateからline_user_idを取得
+        # stateから情報を取得
         state = request.args.get('state')
-        line_user_id = db_helper.get_line_user_id_by_state(state)
-        if not line_user_id:
+        record = db_helper.get_oauth_state(state)
+        if not record:
             return make_response("認証セッションが無効です", 400)
+        
+        # 有効期限チェック
+        from datetime import datetime, timezone
+        if datetime.fromisoformat(record['expires_at']) < datetime.now(timezone.utc):
+            return make_response("認証セッションが期限切れです", 400)
+        
+        line_user_id = record['line_user_id']
         
         # 新たにflowを生成
         SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -374,6 +390,8 @@ def oauth2callback():
         db_helper.save_google_token(line_user_id, token_data)
         # ワンタイムコードを使用済みに（line_user_idから消込）
         db_helper.mark_onetime_used_by_line_user(line_user_id)
+        # OAuth stateを削除（使用済み）
+        db_helper.delete_oauth_state(state)
         # 認証完了画面
         html = "<h2>Google認証が完了しました。LINEに戻って操作を続けてください。</h2>"
         return make_response(html, 200)
@@ -478,24 +496,26 @@ def api_send_daily_agenda():
     import os
     from flask import request, jsonify
     secret_token = os.environ.get('DAILY_AGENDA_SECRET_TOKEN')
-    # ヘッダ優先、なければクエリ or フォーム
-    req_token = request.headers.get('X-Auth-Token') or request.args.get('token') or request.form.get('token')
+    req_token = request.headers.get('X-Auth-Token')
     if not secret_token or req_token != secret_token:
-        return jsonify({'status': 'error', 'message': 'Invalid or missing token'}), 403
+        return jsonify({'status': 'error', 'message': 'Forbidden'}), 403
     try:
         send_daily_agenda()
         return jsonify({'status': 'ok'})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        logger.exception("send_daily_agenda failed")
+        return jsonify({'status': 'error', 'message': 'internal error'}), 500
 
-@app.route('/api/debug_users', methods=['GET'])
+@app.route('/api/debug_users', methods=['POST'])
 def api_debug_users():
+    if not ENABLE_DEBUG_ENDPOINTS:
+        return ("Not Found", 404)
     import os
     from flask import request, jsonify
     secret_token = os.environ.get('DAILY_AGENDA_SECRET_TOKEN')
-    req_token = request.args.get('token')
+    req_token = request.headers.get('X-Auth-Token')
     if not secret_token or req_token != secret_token:
-        return jsonify({'status': 'error', 'message': 'Invalid or missing token'}), 403
+        return jsonify({'status': 'error', 'message': 'Forbidden'}), 403
     from db import DBHelper
     db = DBHelper()
     c = db.conn.cursor()

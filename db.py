@@ -354,39 +354,45 @@ class DBHelper:
         else:
             self.conn.close()
 
-    def save_oauth_state(self, state, line_user_id):
+    def save_oauth_state(self, state, line_user_id, expires_at=None):
         """OAuth stateとLINEユーザーIDを紐付けて保存"""
         c = self.conn.cursor()
         now = datetime.now().isoformat()
+        if expires_at is None:
+            from datetime import timedelta, timezone
+            expires_at = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+        
         if self.is_postgres:
             c.execute('''
                 CREATE TABLE IF NOT EXISTS oauth_states (
                     state TEXT PRIMARY KEY,
                     line_user_id TEXT,
-                    created_at TEXT
+                    created_at TEXT,
+                    expires_at TEXT
                 )
             ''')
             c.execute('''
-                INSERT INTO oauth_states (state, line_user_id, created_at)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (state) DO UPDATE SET line_user_id=EXCLUDED.line_user_id, created_at=EXCLUDED.created_at
-            ''', (state, line_user_id, now))
+                INSERT INTO oauth_states (state, line_user_id, created_at, expires_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (state) DO UPDATE SET line_user_id=EXCLUDED.line_user_id, created_at=EXCLUDED.created_at, expires_at=EXCLUDED.expires_at
+            ''', (state, line_user_id, now, expires_at))
         else:
             c.execute('''
                 CREATE TABLE IF NOT EXISTS oauth_states (
                     state TEXT PRIMARY KEY,
                     line_user_id TEXT,
-                    created_at TEXT
+                    created_at TEXT,
+                    expires_at TEXT
                 )
             ''')
             c.execute('''
-                INSERT OR REPLACE INTO oauth_states (state, line_user_id, created_at)
-                VALUES (?, ?, ?)
-            ''', (state, line_user_id, now))
+                INSERT OR REPLACE INTO oauth_states (state, line_user_id, created_at, expires_at)
+                VALUES (?, ?, ?, ?)
+            ''', (state, line_user_id, now, expires_at))
         self.conn.commit()
 
     def get_line_user_id_by_state(self, state):
-        """stateからLINEユーザーIDを取得"""
+        """stateからLINEユーザーIDを取得（非推奨、get_oauth_stateを使用）"""
         c = self.conn.cursor()
         if self.is_postgres:
             c.execute('SELECT line_user_id FROM oauth_states WHERE state = %s', (state,))
@@ -394,6 +400,27 @@ class DBHelper:
             c.execute('SELECT line_user_id FROM oauth_states WHERE state = ?', (state,))
         result = c.fetchone()
         return result[0] if result else None
+
+    def get_oauth_state(self, state):
+        """OAuth state情報を取得"""
+        c = self.conn.cursor()
+        if self.is_postgres:
+            c.execute('SELECT line_user_id, expires_at FROM oauth_states WHERE state = %s', (state,))
+        else:
+            c.execute('SELECT line_user_id, expires_at FROM oauth_states WHERE state = ?', (state,))
+        result = c.fetchone()
+        if result:
+            return {'line_user_id': result[0], 'expires_at': result[1]}
+        return None
+
+    def delete_oauth_state(self, state):
+        """OAuth stateを削除"""
+        c = self.conn.cursor()
+        if self.is_postgres:
+            c.execute('DELETE FROM oauth_states WHERE state = %s', (state,))
+        else:
+            c.execute('DELETE FROM oauth_states WHERE state = ?', (state,))
+        self.conn.commit()
 
     def save_pending_event(self, line_user_id, event_json):
         now = datetime.utcnow().isoformat()
