@@ -832,18 +832,24 @@ class AIService:
         
         response = "✅以下が空き時間です！\n\n"
         for date in sorted(date_slots.keys()):
+            slots = sorted(list(date_slots[date]))
+            print(f"[DEBUG] 日付{date}の最終空き時間: {slots}")
+            
+            # 空き時間がない日付は表示しない
+            if not slots:
+                continue
+                
+            # 空き時間がある日付のみ表示
             dt = jst.localize(datetime.strptime(date, "%Y-%m-%d"))
             weekday = "月火水木金土日"[dt.weekday()]
             response += f"{dt.month}/{dt.day}（{weekday}）\n"
             
-            slots = sorted(list(date_slots[date]))
-            print(f"[DEBUG] 日付{date}の最終空き時間: {slots}")
-            
-            if not slots:
-                response += "・空き時間なし\n"
-            else:
-                for start, end in slots:
-                    response += f"・{start}〜{end}\n"
+            for start, end in slots:
+                response += f"・{start}〜{end}\n"
+                    
+        # 全ての日付で空き時間がない場合
+        if response == "✅以下が空き時間です！\n\n":
+            return "✅空き時間はありませんでした。"
                     
         print(f"[DEBUG] 最終レスポンス: {response}")
         return response 
