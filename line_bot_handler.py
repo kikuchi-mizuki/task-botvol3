@@ -269,17 +269,18 @@ class LineBotHandler:
             if not self.ai_service:
                 return TextSendMessage(text="AIサービスの初期化に失敗しました。OpenAI APIキーを設定してください。")
             
+            # AIを使ってメッセージの意図を判断
+            ai_result = self.ai_service.extract_dates_and_times(user_message)
+            print(f"[DEBUG] ai_result: {ai_result}")
+            
             # 月のみ入力パターンをチェック
             month_match = re.search(r'(\d{1,2})月', user_message.strip())
             if month_match and not re.search(r'\d{1,2}日', user_message):
                 # 「11月」のような月のみ入力の場合、その月の全期間を展開
                 month_num = int(month_match.group(1))
                 if 1 <= month_num <= 12:
-                    return self._handle_month_availability(month_num, line_user_id)
-            
-            # AIを使ってメッセージの意図を判断
-            ai_result = self.ai_service.extract_dates_and_times(user_message)
-            print(f"[DEBUG] ai_result: {ai_result}")
+                    location = ai_result.get('location', '')
+                    return self._handle_month_availability(month_num, line_user_id, location=location)
             
             if 'error' in ai_result:
                 # AI処理に失敗した場合、ガイダンスメッセージを返す
@@ -290,7 +291,9 @@ class LineBotHandler:
             
             if task_type == 'availability_check':
                 print(f"[DEBUG] dates_info: {ai_result.get('dates', [])}")
-                return self._handle_availability_check(ai_result.get('dates', []), line_user_id)
+                location = ai_result.get('location', '')
+                print(f"[DEBUG] location: {location}")
+                return self._handle_availability_check(ai_result.get('dates', []), line_user_id, location=location)
             elif task_type == 'add_event':
                 # 予定追加時の重複確認ロジック（複数予定対応）
                 if not self.calendar_service:
@@ -524,7 +527,7 @@ class LineBotHandler:
             print(f"[DEBUG] 複数予定処理エラー: {e}")
             return TextSendMessage(text=f"予定の処理中にエラーが発生しました: {str(e)}")
     
-    def _handle_month_availability(self, month_num, line_user_id):
+    def _handle_month_availability(self, month_num, line_user_id, location=None):
         """月全体の空き時間を処理します"""
         import calendar
         try:
@@ -554,10 +557,10 @@ class LineBotHandler:
                 })
                 current_date += timedelta(days=1)
             
-            print(f"[DEBUG] 月全体の空き時間処理: {year}年{month_num}月 ({len(dates_info)}日)")
+            print(f"[DEBUG] 月全体の空き時間処理: {year}年{month_num}月 ({len(dates_info)}日), location: {location}")
             
             # 通常の空き時間チェック処理を呼び出し
-            return self._handle_availability_check(dates_info, line_user_id)
+            return self._handle_availability_check(dates_info, line_user_id, location=location)
             
         except Exception as e:
             print(f"[DEBUG] 月全体の空き時間処理でエラー: {e}")
@@ -565,12 +568,13 @@ class LineBotHandler:
             traceback.print_exc()
             return TextSendMessage(text=f"月の空き時間確認でエラーが発生しました: {str(e)}")
     
-    def _handle_availability_check(self, dates_info, line_user_id):
+    def _handle_availability_check(self, dates_info, line_user_id, location=None):
         """空き時間確認を処理します"""
         try:
             print(f"[DEBUG] _handle_availability_check開始")
             print(f"[DEBUG] dates_info: {dates_info}")
             print(f"[DEBUG] line_user_id: {line_user_id}")
+            print(f"[DEBUG] location: {location}")
             
             # ユーザーの認証状態をチェック
             if not self._check_user_auth(line_user_id):
@@ -609,8 +613,26 @@ class LineBotHandler:
                         
                         # 枠内の予定を取得
                         print(f"[DEBUG] 日付{i+1}の予定取得開始")
-                        events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
-                        print(f"[DEBUG] 日付{i+1}の取得予定: {events}")
+                        all_events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
+                        print(f"[DEBUG] 日付{i+1}の取得予定: {all_events}")
+                        
+                        # 場所フィルタリング
+                        if location:
+                            print(f"[DEBUG] 場所フィルタ適用: {location}")
+                            filtered_events = []
+                            for event in all_events:
+                                # locationフィールドまたはtitleに場所が含まれている場合のみカウント
+                                event_location = event.get('location', '')
+                                event_title = event.get('title', '')
+                                if location in event_location or location in event_title:
+                                    filtered_events.append(event)
+                                    print(f"[DEBUG] 予定をマッチ: {event}")
+                                else:
+                                    print(f"[DEBUG] 予定を除外: {event}")
+                            events = filtered_events
+                            print(f"[DEBUG] フィルタ後予定数: {len(events)}")
+                        else:
+                            events = all_events
                         
                         # 8:00〜22:00の間で空き時間を返す
                         day_start = "08:00"

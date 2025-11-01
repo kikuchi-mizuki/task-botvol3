@@ -278,10 +278,12 @@ class GoogleCalendarService:
                         start = event['start'].get('dateTime', event['start'].get('date'))
                         end = event['end'].get('dateTime', event['end'].get('date'))
                         title = event.get('summary', 'タイトルなし')
+                        location = event.get('location', '')
                         day_events.append({
                             'title': title,
                             'start': start,
-                            'end': end
+                            'end': end,
+                            'location': location
                         })
                     events_info.append({
                         'date': date.strftime('%Y-%m-%d'),
@@ -347,11 +349,13 @@ class GoogleCalendarService:
                 start = event['start'].get('dateTime', event['start'].get('date'))
                 end = event['end'].get('dateTime', event['end'].get('date'))
                 title = event.get('summary', 'タイトルなし')
+                location = event.get('location', '')
                 
                 event_data = {
                     'title': title,
                     'start': start,
-                    'end': end
+                    'end': end,
+                    'location': location
                 }
                 event_list.append(event_data)
                 print(f"[DEBUG] イベント{i+1}追加: {event_data}")
