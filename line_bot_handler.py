@@ -188,7 +188,6 @@ class LineBotHandler:
                             first_event = added_events[0]
                             time_str = first_event['time']
                             # "10/18 (土)19:00〜20:00" から "10/18 (土)" を抽出
-                            import re
                             date_match = re.search(r'(\d{1,2}/\d{1,2}\s*\([月火水木金土日]\)\s*)', time_str)
                             date_part = date_match.group(1).strip() if date_match else time_str
                             response_text += f"{date_part}\n"
