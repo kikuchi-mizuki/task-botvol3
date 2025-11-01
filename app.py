@@ -70,6 +70,12 @@ app.config.update(
 # ProxyFixを追加
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
+# HSTSヘッダーを追加
+@app.after_request
+def set_security_headers(resp):
+    resp.headers['Strict-Transport-Security'] = 'max-age=63072000; includeSubDomains; preload'
+    return resp
+
 # 設定の検証
 try:
     Config.validate_config()
@@ -77,6 +83,9 @@ try:
 except ValueError as e:
     logger.error(f"設定エラー: {e}")
     raise
+
+# デバッグエンドポイントの有効化フラグ
+ENABLE_DEBUG_ENDPOINTS = os.getenv('ENABLE_DEBUG_ENDPOINTS', 'false').lower() == 'true'
 
 # LINEボットハンドラーを初期化
 try:
@@ -376,6 +385,8 @@ def oauth2callback():
 @app.route('/debug/ai_test', methods=['GET', 'POST'])
 def debug_ai_test():
     """AI抽出機能のデバッグ用エンドポイント"""
+    if not ENABLE_DEBUG_ENDPOINTS:
+        return ("Not Found", 404)
     from flask import render_template_string, request, jsonify
     
     if request.method == 'POST':
