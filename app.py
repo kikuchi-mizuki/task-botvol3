@@ -25,6 +25,9 @@ def write_credentials():
 
         with open("credentials.json", "w") as f:
             f.write(content)
+        
+        # ファイル権限を600に設定（所有者のみ読み書き可能）
+        os.chmod("credentials.json", 0o600)
 
         size = os.path.getsize("credentials.json")
         logging.info(f"credentials.jsonファイルが正常に作成されました (サイズ: {size} bytes)")
@@ -35,7 +38,7 @@ def write_credentials():
 
 write_credentials()
 
-from flask import Flask, request, abort, render_template_string, redirect, url_for, session, Response, make_response
+from flask import Flask, request, abort, render_template_string, redirect, make_response
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
@@ -45,7 +48,6 @@ import json
 from datetime import datetime
 import pickle
 from google_auth_oauthlib.flow import Flow
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from db import DBHelper
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -58,8 +60,15 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
 
+# セキュリティ設定
+app.config.update(
+    PREFERRED_URL_SCHEME="https",
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+)
+
 # ProxyFixを追加
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # 設定の検証
 try:
@@ -86,12 +95,13 @@ db_helper = DBHelper()
 @app.route("/callback", methods=['POST'])
 def callback():
     """LINE Webhookのコールバックエンドポイント"""
-    # リクエストヘッダーからX-Line-Signatureを取得
-    signature = request.headers['X-Line-Signature']
+    signature = request.headers.get('X-Line-Signature')
+    if not signature:
+        logger.warning("X-Line-Signature ヘッダーがありません")
+        abort(400)
 
-    # リクエストボディを取得
     body = request.get_data(as_text=True)
-    logger.info("Request body: " + body)
+    logger.debug("Request body (debug only): %s", body)
 
     try:
         # 署名を検証し、問題なければhandleに定義されている関数を呼び出す
@@ -113,9 +123,10 @@ def handle_message(event):
         # メッセージを処理してレスポンスを取得
         response = line_bot_handler.handle_message(event)
         
-        # LINEにメッセージを送信（SSLエラー対応のリトライ機能付き）
-        max_retries = 5
-        retry_delay = 2  # 秒
+        # LINEにメッセージを送信（reply_token期限対策、429対応）
+        import time
+        max_retries = 3
+        retry_delay = 1.5  # 秒
         
         for attempt in range(max_retries):
             try:
@@ -129,36 +140,29 @@ def handle_message(event):
                 error_msg = str(send_error)
                 logger.warning(f"メッセージ送信試行 {attempt + 1}/{max_retries} でエラー: {error_msg}")
                 
-                # SSLエラーの場合は特別な処理
-                if "SSL SYSCALL error" in error_msg or "EOF detected" in error_msg:
+                # 429 レート制限
+                if "429" in error_msg or "Too Many Requests" in error_msg:
+                    logger.info("レート制限を検出、2秒後にリトライします")
+                    time.sleep(2.0)
+                # SSLエラーの場合
+                elif "SSL SYSCALL error" in error_msg or "EOF detected" in error_msg:
                     logger.info(f"SSLエラーを検出、{retry_delay}秒後にリトライします")
-                    logger.info(f"SSLエラー詳細: {type(send_error).__name__}: {error_msg}")
-                    import time
                     time.sleep(retry_delay)
-                    
+                    retry_delay *= 1.5
+                else:
                     if attempt < max_retries - 1:
-                        retry_delay *= 2  # 指数バックオフ（次の試行用）
-                        logger.info(f"次のリトライまでの待機時間: {retry_delay}秒")
+                        time.sleep(1.0)
                         continue
                     else:
-                        logger.error("SSLエラーが継続し、最大リトライ回数に達しました")
+                        logger.error(f"最大リトライ回数に達しました: {send_error}")
                         raise send_error
-                
-                # その他のエラーの場合
-                if attempt == max_retries - 1:
-                    logger.error(f"最大リトライ回数に達しました: {send_error}")
-                    raise send_error
-                
-                import time
-                time.sleep(1)  # 1秒待機してからリトライ
         
     except Exception as e:
         logger.error(f"メッセージ処理でエラーが発生しました: {e}")
         # エラーが発生した場合はエラーメッセージを送信
         try:
-            # エラーメッセージ送信時もリトライ機能を適用
-            max_retries = 3
-            for attempt in range(max_retries):
+            # エラーメッセージ送信時もリトライ機能を適用（簡略版）
+            for attempt in range(2):
                 try:
                     line_bot_handler.line_bot_api.reply_message(
                         event.reply_token,
@@ -167,11 +171,10 @@ def handle_message(event):
                     logger.info("エラーメッセージの送信が完了しました")
                     break
                 except Exception as reply_error:
-                    logger.warning(f"エラーメッセージ送信試行 {attempt + 1}/{max_retries} でエラー: {reply_error}")
-                    if attempt == max_retries - 1:
+                    logger.warning(f"エラーメッセージ送信試行 {attempt + 1}/2 でエラー: {reply_error}")
+                    if attempt == 1:
                         logger.error(f"エラーメッセージの送信に失敗しました: {reply_error}")
                     else:
-                        import time
                         time.sleep(1)
         except Exception as reply_error:
             logger.error(f"エラーメッセージの送信に失敗しました: {reply_error}")
@@ -501,4 +504,5 @@ if __name__ == "__main__":
     logger.info(f"Requests バージョン: {requests.__version__}")
     logger.info(f"urllib3 バージョン: {urllib3.__version__}")
     
-    app.run(debug=True, host='0.0.0.0', port=port) 
+    # Railwayはgunicornで起動するため、ローカル用途のみ
+    app.run(debug=False, host='0.0.0.0', port=port) 
