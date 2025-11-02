@@ -271,9 +271,11 @@ def onetime_login():
     
     elif request.method == 'POST':
         code = request.form.get('code', '').strip().upper()
+        logger.info(f"[DEBUG] 入力されたワンタイムコード: {code}")
         
         # ワンタイムコードを検証
         line_user_id = db_helper.verify_onetime_code(code)
+        logger.info(f"[DEBUG] 検証結果: line_user_id={line_user_id}")
         if not line_user_id:
             html = '''
             <!DOCTYPE html>

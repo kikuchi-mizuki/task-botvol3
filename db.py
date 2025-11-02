@@ -261,6 +261,10 @@ class DBHelper:
 
     def verify_onetime_code(self, code):
         """ワンタイムコードを検証（有効期限・使用済みチェック）"""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[DEBUG] verify_onetime_code: code={code}")
+        
         c = self.conn.cursor()
         if self.is_postgres:
             c.execute('''
@@ -277,18 +281,25 @@ class DBHelper:
         result = c.fetchone()
         
         if not result:
+            logger.info(f"[DEBUG] コードが存在しません: {code}")
             return None  # コードが存在しない
         
         line_user_id, expires_at, used = result
+        logger.info(f"[DEBUG] コード情報: line_user_id={line_user_id}, expires_at={expires_at}, used={used}")
         
         if used:
+            logger.info(f"[DEBUG] コードは既に使用済み: {code}")
             return None  # 既に使用済み
         
         # 有効期限チェック
         expires_datetime = datetime.fromisoformat(expires_at)
-        if datetime.now() > expires_datetime:
+        now = datetime.now()
+        logger.info(f"[DEBUG] 有効期限チェック: now={now}, expires_at={expires_datetime}, valid={now <= expires_datetime}")
+        if now > expires_datetime:
+            logger.info(f"[DEBUG] コードは期限切れ: {code}")
             return None  # 期限切れ
         
+        logger.info(f"[DEBUG] コード検証成功: {code}")
         return line_user_id
 
     def mark_onetime_used(self, code):
