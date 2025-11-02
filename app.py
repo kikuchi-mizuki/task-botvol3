@@ -84,7 +84,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 @app.after_request
 def set_security_headers(resp):
     resp.headers['Strict-Transport-Security'] = 'max-age=63072000; includeSubDomains; preload'
-    resp.headers['Content-Security-Policy'] = "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+    resp.headers['Content-Security-Policy'] = "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self'; form-action 'self' https://accounts.google.com; base-uri 'none'; frame-ancestors 'none'"
     resp.headers['X-Content-Type-Options'] = 'nosniff'
     resp.headers['X-Frame-Options'] = 'DENY'
     resp.headers['Referrer-Policy'] = 'no-referrer'
@@ -355,7 +355,9 @@ def onetime_login():
             logger.info(f"[DEBUG] ワンタイムコードを使用済みにマーク: {code}")
             
             logger.info(f"[DEBUG] Google認証ページにリダイレクト開始")
-            return redirect(auth_url)
+            response = redirect(auth_url)
+            logger.info(f"[DEBUG] リダイレクトレスポンス: status_code={response.status_code}, location={response.headers.get('Location', 'None')}")
+            return response
         except Exception as e:
             logging.error(f"Google OAuth認証エラー: {e}")
             import traceback
