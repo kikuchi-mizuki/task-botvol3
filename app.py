@@ -332,8 +332,8 @@ def onetime_login():
                 prompt='consent',
                 state=None  # Flow が自前で付与
             )
-            # stateとline_user_idをDBに保存（Flow の oauth2session.state を使用）
-            db_helper.save_oauth_state(flow.oauth2session.state, line_user_id)
+            # stateとline_user_idをDBに保存
+            db_helper.save_oauth_state(state, line_user_id)
             return redirect(auth_url)
         except Exception as e:
             logging.error(f"Google OAuth認証エラー: {e}")
