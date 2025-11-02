@@ -426,7 +426,10 @@ def oauth2callback():
         
         # 認証コードを取得してトークンを交換（Flowはスコープ検証不要）
         logger.info(f"[DEBUG] fetch_token開始: request.url={request.url}")
-        flow.fetch_token(authorization_response=request.url)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore')
+            flow.fetch_token(authorization_response=request.url)
         logger.info(f"[DEBUG] fetch_token完了")
         
         credentials = flow.credentials
