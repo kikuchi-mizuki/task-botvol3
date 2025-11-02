@@ -343,13 +343,18 @@ def onetime_login():
                 prompt='consent',
                 state=None  # Flow が自前で付与
             )
+            logger.info(f"[DEBUG] Google認証URL生成: auth_url={auth_url[:100]}...")
+            logger.info(f"[DEBUG] OAuth state: {state}")
+            
             # stateとline_user_idをDBに保存
             db_helper.save_oauth_state(state, line_user_id)
+            logger.info(f"[DEBUG] OAuth stateをDBに保存完了")
             
             # ワンタイムコードを使用済みにマーク（リダイレクト直前に実行）
             db_helper.mark_onetime_used(code)
             logger.info(f"[DEBUG] ワンタイムコードを使用済みにマーク: {code}")
             
+            logger.info(f"[DEBUG] Google認証ページにリダイレクト開始")
             return redirect(auth_url)
         except Exception as e:
             logging.error(f"Google OAuth認証エラー: {e}")
