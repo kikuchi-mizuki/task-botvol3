@@ -493,11 +493,17 @@ def oauth2callback():
                 # 新しいFlowを作成
                 flow2 = Flow.from_client_secrets_file('credentials.json', scopes=SCOPES)
                 flow2.redirect_uri = flow.redirect_uri
+                logger.info(f"[DEBUG] flow2作成完了、fetch_token開始")
                 try:
                     flow2.fetch_token(authorization_response=request.url)
+                    logger.info(f"[DEBUG] flow2.fetch_token成功")
                 except Warning as w2:
                     # 再取得でも警告が出る場合はそのまま続行
                     logger.warning(f"[DEBUG] 再取得でもスコープ警告: {w2}")
+                except Exception as e2:
+                    logger.error(f"[DEBUG] flow2.fetch_tokenで例外発生: {e2}")
+                    raise
+                logger.info(f"[DEBUG] flow2に置き換え")
                 flow = flow2
         logger.info(f"[DEBUG] fetch_token完了")
         
