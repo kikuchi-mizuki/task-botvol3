@@ -480,26 +480,25 @@ def oauth2callback():
         # 認証コードを取得してトークンを交換（Flowはスコープ検証不要）
         logger.info(f"[DEBUG] fetch_token開始: request.url={request.url}")
         import warnings
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
+        # Warningを無視する設定
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
                 flow.fetch_token(authorization_response=request.url)
-        except Warning as w:
-            # oauthlibがWarningを例外としてraiseしている場合の処理
-            logger.warning(f"[DEBUG] スコープ警告を無視して処理を継続: {w}")
-            # Warning発生時は常に新規Flowを作成して再取得
-            logger.info(f"[DEBUG] 新規Flowを作成して再取得")
-            # 新しいFlowを作成
-            flow2 = Flow.from_client_secrets_file('credentials.json', scopes=SCOPES)
-            flow2.redirect_uri = flow.redirect_uri
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                flow2.fetch_token(authorization_response=request.url)
-            flow = flow2
-        except Exception as e:
-            # その他の例外は再発生
-            logger.error(f"[DEBUG] fetch_tokenで例外発生: {e}")
-            raise
+            except Warning as w:
+                # oauthlibがWarningを例外としてraiseしている場合の処理
+                logger.warning(f"[DEBUG] スコープ警告を無視して処理を継続: {w}")
+                # Warning発生時は常に新規Flowを作成して再取得
+                logger.info(f"[DEBUG] 新規Flowを作成して再取得")
+                # 新しいFlowを作成
+                flow2 = Flow.from_client_secrets_file('credentials.json', scopes=SCOPES)
+                flow2.redirect_uri = flow.redirect_uri
+                try:
+                    flow2.fetch_token(authorization_response=request.url)
+                except Warning as w2:
+                    # 再取得でも警告が出る場合はそのまま続行
+                    logger.warning(f"[DEBUG] 再取得でもスコープ警告: {w2}")
+                flow = flow2
         logger.info(f"[DEBUG] fetch_token完了")
         
         credentials = flow.credentials
