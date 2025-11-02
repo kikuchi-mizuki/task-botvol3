@@ -244,9 +244,21 @@ def onetime_login():
                 input[type="text"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
                 button { background: #4285f4; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer; }
                 button:hover { background: #3367d6; }
+                button:disabled { background: #ccc; cursor: not-allowed; }
                 .error { color: red; margin-top: 10px; }
                 .success { color: green; margin-top: 10px; }
             </style>
+            <script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    const form = document.querySelector('form');
+                    const button = document.querySelector('button[type="submit"]');
+                    
+                    form.addEventListener('submit', function() {
+                        button.disabled = true;
+                        button.textContent = '認証中...';
+                    });
+                });
+            </script>
         </head>
         <body>
             <h1>Google Calendar 認証</h1>
