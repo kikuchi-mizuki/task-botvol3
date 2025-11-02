@@ -425,18 +425,29 @@ def oauth2callback():
         logger.info(f"[DEBUG] oauth2callback BASE_URL: {base_url}")
         
         # 認証コードを取得してトークンを交換（Flowはスコープ検証不要）
+        logger.info(f"[DEBUG] fetch_token開始: request.url={request.url}")
         flow.fetch_token(authorization_response=request.url)
+        logger.info(f"[DEBUG] fetch_token完了")
         
         credentials = flow.credentials
+        logger.info(f"[DEBUG] 認証情報取得完了: credentials={credentials is not None}")
+        
         # トークンをDBに保存
         token_data = pickle.dumps(credentials)
         db_helper.save_google_token(line_user_id, token_data)
+        logger.info(f"[DEBUG] トークンをDBに保存完了")
+        
         # ワンタイムコードを使用済みに（line_user_idから消込）
         db_helper.mark_onetime_used_by_line_user(line_user_id)
+        logger.info(f"[DEBUG] ワンタイムコードを使用済みにマーク完了")
+        
         # OAuth stateを削除（使用済み）
         db_helper.delete_oauth_state(state)
+        logger.info(f"[DEBUG] OAuth stateを削除完了")
+        
         # 認証完了画面
         html = "<h2>Google認証が完了しました。LINEに戻って操作を続けてください。</h2>"
+        logger.info(f"[DEBUG] 認証完了画面を返却")
         return make_response(html, 200)
     except Exception as e:
         import traceback
