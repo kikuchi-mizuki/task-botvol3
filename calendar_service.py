@@ -97,8 +97,11 @@ class GoogleCalendarService:
                     token_dict = json.loads(token_str)
                     print(f"[DEBUG] JSON形式のトークンデータのパース完了")
                     
-                    # Credentialsオブジェクトを作成
-                    credentials = Credentials.from_authorized_user_info(token_dict)
+                    # Credentialsオブジェクトを作成（scopesを指定）
+                    credentials = Credentials.from_authorized_user_info(
+                        token_dict,
+                        scopes=['https://www.googleapis.com/auth/calendar']
+                    )
                     print(f"[DEBUG] JSON形式からCredentialsオブジェクト作成完了")
                     
                 except Exception as json_error:
@@ -114,10 +117,10 @@ class GoogleCalendarService:
                     try:
                         credentials.refresh(Request())
                         print(f"[DEBUG] トークンのリフレッシュ完了")
-                        # 更新されたトークンをDBに保存
-                        updated_token_data = pickle.dumps(credentials)
-                        self.db_helper.save_google_token(line_user_id, updated_token_data)
-                        print(f"[DEBUG] 更新されたトークンをDBに保存完了")
+                        # 更新されたトークンをJSON形式でDBに保存
+                        updated_token_json = credentials.to_json()
+                        self.db_helper.save_google_token(line_user_id, updated_token_json.encode('utf-8'))
+                        print(f"[DEBUG] 更新されたトークンをDBに保存完了（JSON形式）")
                     except Exception as refresh_error:
                         print(f"[DEBUG] トークンのリフレッシュエラー: {refresh_error}")
                         # リフレッシュに失敗してもcredentialsは返す

@@ -2,6 +2,8 @@ import os
 import logging
 import base64
 import json
+import time
+import re
 
 # ログレベルを環境変数で制御
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
@@ -54,11 +56,9 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from line_bot_handler import LineBotHandler
 from config import Config
-import json
 from datetime import datetime
-import pickle
 from google_auth_oauthlib.flow import Flow
-from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
 from db import DBHelper
 from werkzeug.middleware.proxy_fix import ProxyFix
 from ai_service import AIService
@@ -83,8 +83,18 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 # セキュリティヘッダーを追加
 @app.after_request
 def set_security_headers(resp):
-    resp.headers['Strict-Transport-Security'] = 'max-age=63072000; includeSubDomains; preload'
-    resp.headers['Content-Security-Policy'] = "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self'; form-action 'self' https://accounts.google.com; base-uri 'none'; frame-ancestors 'none'"
+    # 本番のみ HSTS 推奨
+    if os.getenv('ENV', 'production').lower() == 'production':
+        resp.headers['Strict-Transport-Security'] = 'max-age=63072000; includeSubDomains; preload'
+    resp.headers['Content-Security-Policy'] = (
+        "default-src 'none'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "connect-src 'self'; "
+        "img-src 'self' data:; "
+        "form-action 'self' https://accounts.google.com; "
+        "base-uri 'none'; frame-ancestors 'none'"
+    )
     resp.headers['X-Content-Type-Options'] = 'nosniff'
     resp.headers['X-Frame-Options'] = 'DENY'
     resp.headers['Referrer-Policy'] = 'no-referrer'
@@ -147,7 +157,7 @@ def handle_message(event):
         response = line_bot_handler.handle_message(event)
         
         # LINEにメッセージを送信（reply_token期限対策、429対応）
-        import time
+        from linebot.exceptions import LineBotApiError
         max_retries = 3
         retry_delay = 1.5  # 秒
         
@@ -159,16 +169,31 @@ def handle_message(event):
                 )
                 logger.info("メッセージの処理が完了しました")
                 break
-            except Exception as send_error:
+            except LineBotApiError as send_error:
                 error_msg = str(send_error)
                 logger.warning(f"メッセージ送信試行 {attempt + 1}/{max_retries} でエラー: {error_msg}")
                 
-                # 429 レート制限
-                if "429" in error_msg or "Too Many Requests" in error_msg:
+                # 429 レート制限（status_codeで判定）
+                if send_error.status_code == 429:
                     logger.info("レート制限を検出、2秒後にリトライします")
                     time.sleep(2.0)
                 # SSLエラーの場合
                 elif "SSL SYSCALL error" in error_msg or "EOF detected" in error_msg:
+                    logger.info(f"SSLエラーを検出、{retry_delay}秒後にリトライします")
+                    time.sleep(retry_delay)
+                    retry_delay *= 1.5
+                else:
+                    if attempt < max_retries - 1:
+                        time.sleep(1.0)
+                        continue
+                    else:
+                        logger.error(f"最大リトライ回数に達しました: {send_error}")
+                        raise send_error
+            except Exception as send_error:
+                error_msg = str(send_error)
+                logger.warning(f"メッセージ送信試行 {attempt + 1}/{max_retries} でエラー: {error_msg}")
+                # SSLエラーの場合
+                if "SSL SYSCALL error" in error_msg or "EOF detected" in error_msg:
                     logger.info(f"SSLエラーを検出、{retry_delay}秒後にリトライします")
                     time.sleep(retry_delay)
                     retry_delay *= 1.5
@@ -285,6 +310,34 @@ def onetime_login():
         code = request.form.get('code', '').strip().upper()
         logger.info(f"[DEBUG] 入力されたワンタイムコード: {code}")
         
+        # ワンタイムコードの形式チェック（サーバ側バリデーション）
+        if not re.fullmatch(r'[A-Z0-9]{8}', code):
+            html = '''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>認証エラー</title>
+                <meta charset="utf-8">
+                <style>
+                    body { font-family: Arial, sans-serif; max-width: 500px; margin: 50px auto; padding: 20px; }
+                    .error { color: red; margin: 20px 0; }
+                    .back-link { margin-top: 20px; }
+                </style>
+            </head>
+            <body>
+                <h1>認証エラー</h1>
+                <div class="error">
+                    コードの形式が不正です。<br>
+                    8文字の英数字コードを入力してください。
+                </div>
+                <div class="back-link">
+                    <a href="/onetime_login">戻る</a>
+                </div>
+            </body>
+            </html>
+            '''
+            return render_template_string(html)
+        
         # ワンタイムコードを検証
         line_user_id = db_helper.verify_onetime_code(code)
         logger.info(f"[DEBUG] 検証結果: line_user_id={line_user_id}")
@@ -337,11 +390,11 @@ def onetime_login():
             logger.info(f"[DEBUG] 設定されたリダイレクトURI: {flow.redirect_uri}")
             logger.info(f"[DEBUG] BASE_URL: {base_url}")
             
+            # stateは引数を渡さず戻り値を使用
             auth_url, state = flow.authorization_url(
                 access_type='offline',
-                include_granted_scopes='true',
+                include_granted_scopes=True,
                 prompt='consent',
-                state=None  # Flow が自前で付与
             )
             logger.info(f"[DEBUG] Google認証URL生成: auth_url={auth_url[:100]}...")
             logger.info(f"[DEBUG] OAuth state: {state}")
@@ -435,10 +488,10 @@ def oauth2callback():
         credentials = flow.credentials
         logger.info(f"[DEBUG] 認証情報取得完了: credentials={credentials is not None}")
         
-        # トークンをDBに保存
-        token_data = pickle.dumps(credentials)
-        db_helper.save_google_token(line_user_id, token_data)
-        logger.info(f"[DEBUG] トークンをDBに保存完了")
+        # トークンをJSON形式でDBに保存
+        token_json = credentials.to_json()
+        db_helper.save_google_token(line_user_id, token_json.encode('utf-8'))
+        logger.info(f"[DEBUG] トークンをDBに保存完了（JSON形式）")
         
         # ワンタイムコードを使用済みに（line_user_idから消込）
         db_helper.mark_onetime_used_by_line_user(line_user_id)
