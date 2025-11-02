@@ -487,11 +487,12 @@ def oauth2callback():
         except Warning as w:
             # oauthlibがWarningを例外としてraiseしている場合の処理
             logger.warning(f"[DEBUG] スコープ警告を無視して処理を継続: {w}")
-            # Warningを無視して続行（既にトークンは取得済みの可能性がある）
-            if not hasattr(flow, 'credentials') or flow.credentials is None:
-                # 警告が出た後でもトークンを再取得を試みる
-                logger.info(f"[DEBUG] トークン再取得を試行")
-                # 警告を無視して再実行
+            # Warning発生後もcredentialsが取得できているか確認
+            if hasattr(flow, 'credentials') and flow.credentials is not None:
+                logger.info(f"[DEBUG] Warning発生後もcredentialsが取得できています")
+            else:
+                # credentialsが取得できていない場合は再取得を試みる
+                logger.info(f"[DEBUG] credentialsが未取得のため再取得を試行")
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     try:
@@ -499,6 +500,10 @@ def oauth2callback():
                     except Exception as e:
                         logger.error(f"[DEBUG] トークン再取得失敗: {e}")
                         raise
+        except Exception as e:
+            # その他の例外は再発生
+            logger.error(f"[DEBUG] fetch_tokenで例外発生: {e}")
+            raise
         logger.info(f"[DEBUG] fetch_token完了")
         
         credentials = flow.credentials
