@@ -491,15 +491,15 @@ def oauth2callback():
             if hasattr(flow, 'credentials') and flow.credentials is not None:
                 logger.info(f"[DEBUG] Warning発生後もcredentialsが取得できています")
             else:
-                # credentialsが取得できていない場合は再取得を試みる
-                logger.info(f"[DEBUG] credentialsが未取得のため再取得を試行")
+                # credentialsが取得できていない場合は新しいflowを作成して再取得
+                logger.info(f"[DEBUG] credentialsが未取得のため新規Flowを作成して再取得")
+                # 新しいFlowを作成
+                flow2 = Flow.from_client_secrets_file('credentials.json', scopes=SCOPES)
+                flow2.redirect_uri = flow.redirect_uri
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    try:
-                        flow.fetch_token(authorization_response=request.url)
-                    except Exception as e:
-                        logger.error(f"[DEBUG] トークン再取得失敗: {e}")
-                        raise
+                    flow2.fetch_token(authorization_response=request.url)
+                flow = flow2
         except Exception as e:
             # その他の例外は再発生
             logger.error(f"[DEBUG] fetch_tokenで例外発生: {e}")
