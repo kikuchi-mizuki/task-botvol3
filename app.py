@@ -303,9 +303,6 @@ def onetime_login():
             '''
             return render_template_string(html)
         
-        # ワンタイムコードを使用済みにマーク
-        db_helper.mark_onetime_used(code)
-        
         try:
             # Google OAuth認証フローを開始
             SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -336,6 +333,11 @@ def onetime_login():
             )
             # stateとline_user_idをDBに保存
             db_helper.save_oauth_state(state, line_user_id)
+            
+            # ワンタイムコードを使用済みにマーク（リダイレクト直前に実行）
+            db_helper.mark_onetime_used(code)
+            logger.info(f"[DEBUG] ワンタイムコードを使用済みにマーク: {code}")
+            
             return redirect(auth_url)
         except Exception as e:
             logging.error(f"Google OAuth認証エラー: {e}")
