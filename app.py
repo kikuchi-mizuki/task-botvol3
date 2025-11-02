@@ -393,7 +393,7 @@ def onetime_login():
             # stateは引数を渡さず戻り値を使用
             auth_url, state = flow.authorization_url(
                 access_type='offline',
-                include_granted_scopes=True,
+                include_granted_scopes='true',
                 prompt='consent',
             )
             logger.info(f"[DEBUG] Google認証URL生成: auth_url={auth_url[:100]}...")
