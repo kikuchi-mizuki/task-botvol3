@@ -276,12 +276,17 @@ class LineBotHandler:
             # 月のみ入力パターンをチェック
             month_match = re.search(r'(\d{1,2})月', user_message.strip())
             if month_match and not re.search(r'\d{1,2}日', user_message):
-                # 「11月」のような月のみ入力の場合、その月の全期間を展開
-                month_num = int(month_match.group(1))
-                if 1 <= month_num <= 12:
-                    location = ai_result.get('location', '')
-                    travel_time_minutes = ai_result.get('travel_time_minutes', None)
-                    return self._handle_month_availability(month_num, line_user_id, location=location, travel_time_minutes=travel_time_minutes)
+                # 「明日」「明後日」「今日」など相対的な指定が含まれる場合は月全体処理をスキップ
+                relative_keywords = ['明日', '明後日', '今日', '本日']
+                if any(keyword in user_message for keyword in relative_keywords):
+                    pass
+                else:
+                    # 「11月」のような月のみ入力の場合、その月の全期間を展開
+                    month_num = int(month_match.group(1))
+                    if 1 <= month_num <= 12:
+                        location = ai_result.get('location', '')
+                        travel_time_minutes = ai_result.get('travel_time_minutes', None)
+                        return self._handle_month_availability(month_num, line_user_id, location=location, travel_time_minutes=travel_time_minutes)
             
             if 'error' in ai_result:
                 # AI処理に失敗した場合、ガイダンスメッセージを返す
