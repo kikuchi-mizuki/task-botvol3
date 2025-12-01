@@ -220,9 +220,20 @@ class AIService:
             # 来週
             if re.search(r'来週', phrase):
                 # 来週の月曜日を計算
-                days_until_next_monday = (7 - now.weekday()) % 7
-                if days_until_next_monday == 0:  # 今日が月曜日の場合
+                # 月曜日(0)の場合: 来週の月曜日は7日後
+                # 火曜日(1)の場合: 来週の月曜日は6日後
+                # 水曜日(2)の場合: 来週の月曜日は5日後
+                # 木曜日(3)の場合: 来週の月曜日は4日後
+                # 金曜日(4)の場合: 来週の月曜日は3日後
+                # 土曜日(5)の場合: 来週の月曜日は2日後
+                # 日曜日(6)の場合: 来週の月曜日は1日後
+                current_weekday = now.weekday()
+                if current_weekday == 0:  # 月曜日の場合
                     days_until_next_monday = 7
+                else:
+                    days_until_next_monday = (7 - current_weekday) % 7
+                    if days_until_next_monday == 0:
+                        days_until_next_monday = 7
                 next_monday = now + timedelta(days=days_until_next_monday)
                 
                 # 来週の7日間を生成
