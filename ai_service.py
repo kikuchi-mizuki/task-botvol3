@@ -48,6 +48,9 @@ class AIService:
                 "7. 自然言語の時間表現は必ず具体的な時刻範囲・日付範囲に変換してください。\n"
                 "   例：'18時以降'→'18:00〜23:59'、'終日'→'00:00〜23:59'、'今日'→'現在時刻〜23:59'、'今日から1週間'→'今日〜7日後の23:59'。\n"
                 "   終了時間が指定されていない場合は1時間の予定として認識してください（例：'10時'→'10:00〜11:00'）。\n"
+                "   **重要：「X時間空いている日」「X時間空いてる日」という表現の「X時間」は時間範囲ではなく、最小連続空き時間の条件です。**\n"
+                "   「来週2時間空いている日」のような表現では、「2時間」を時間範囲（例：00:00-02:00）として抽出しないでください。\n"
+                "   時間範囲が指定されていない場合は、timeとend_timeフィールドを空欄にするか、デフォルトの範囲（09:00-18:00）を使用してください。\n"
                 "8. 箇条書き（・や-）、改行、スペース、句読点で区切られている場合も、すべての日時・時間帯を抽出してください。\n"
                 "   例：'・7/10 9-10時\n・7/11 9-10時' → 2件の予定として抽出\n"
                 "   例：'7/11 15:00〜16:00 18:00〜19:00' → 2件の予定として抽出\n"
@@ -146,9 +149,17 @@ class AIService:
         allday_dates = set()
         new_dates = []
         # 1. AI抽出を最優先。time, end_timeが空欄のものだけ補完
+        # ただし、「来週」が含まれる場合は、AIが抽出した時間範囲を無視して09:00-18:00に上書き
+        has_next_week = '来週' in original_text
         for d in parsed['dates']:
             print(f"[DEBUG] datesループ: {d}")
             phrase = d.get('description', '') or original_text
+            # 「来週」が含まれる場合は、時間範囲を無視して処理を続行（後で上書きされる）
+            if has_next_week and d.get('time') and d.get('end_time'):
+                print(f"[DEBUG] 来週が含まれるため、AIが抽出した時間範囲 {d.get('time')}-{d.get('end_time')} を無視")
+                # 時間範囲をクリアして、後で09:00-18:00に設定されるようにする
+                d['time'] = None
+                d['end_time'] = None
             # time, end_timeが両方セットされていれば何もしない
             if d.get('time') and d.get('end_time'):
                 new_dates.append(d)
@@ -243,6 +254,7 @@ class AIService:
                     week_dates.append(week_date.strftime('%Y-%m-%d'))
                 
                 # 来週の各日付に対して空き時間確認のエントリを作成
+                # 「X時間空いている」という表現がある場合でも、時間範囲は09:00-18:00に設定
                 for week_date in week_dates:
                     week_entry = {
                         'date': week_date,
@@ -251,7 +263,7 @@ class AIService:
                     }
                     if not any(existing.get('date') == week_date for existing in new_dates):
                         new_dates.append(week_entry)
-                        print(f"[DEBUG] 来週の日付を追加: {week_date}")
+                        print(f"[DEBUG] 来週の日付を追加: {week_date} (時間範囲: 09:00-18:00)")
                 
                 # 元のエントリは削除（来週の処理で置き換え）
                 continue
