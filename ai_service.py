@@ -39,8 +39,10 @@ class AIService:
                 "分析ルール:\n"
                 "1. 複数の日時がある場合は全て抽出\n"
                 "2. 日本語の日付表現（今日、明日、来週月曜日など）を具体的な日付に変換\n"
-                "3. **「来週」という表現は必ず1週間分（7日間）の日付として抽出してください**\n"
+                "3. **「今週」「来週」という表現は必ず1週間分（7日間）の日付として抽出してください**\n"
+                "   - 例：「今週」→ 今週月曜日から日曜日までの7日間\n"
                 "   - 例：「来週」→ 来週月曜日から日曜日までの7日間\n"
+                "   - 例：「今週の空き時間」→ 今週月曜日〜日曜日の7日間の空き時間\n"
                 "   - 例：「来週の空き時間」→ 来週月曜日〜日曜日の7日間の空き時間\n"
                 "4. 月が指定されていない場合（例：16日、17日）は今月として認識\n"
                 "5. 時間表現（午前9時、14時30分、9-10時、9時-10時、9:00-10:00など）を24時間形式に変換\n"
@@ -149,14 +151,15 @@ class AIService:
         allday_dates = set()
         new_dates = []
         # 1. AI抽出を最優先。time, end_timeが空欄のものだけ補完
-        # ただし、「来週」が含まれる場合は、AIが抽出した時間範囲を無視して09:00-18:00に上書き
+        # ただし、「今週」「来週」が含まれる場合は、AIが抽出した時間範囲を無視して09:00-18:00に上書き
+        has_this_week = '今週' in original_text
         has_next_week = '来週' in original_text
         for d in parsed['dates']:
             print(f"[DEBUG] datesループ: {d}")
             phrase = d.get('description', '') or original_text
-            # 「来週」が含まれる場合は、時間範囲を無視して処理を続行（後で上書きされる）
-            if has_next_week and d.get('time') and d.get('end_time'):
-                print(f"[DEBUG] 来週が含まれるため、AIが抽出した時間範囲 {d.get('time')}-{d.get('end_time')} を無視")
+            # 「今週」「来週」が含まれる場合は、時間範囲を無視して処理を続行（後で上書きされる）
+            if (has_this_week or has_next_week) and d.get('time') and d.get('end_time'):
+                print(f"[DEBUG] 今週/来週が含まれるため、AIが抽出した時間範囲 {d.get('time')}-{d.get('end_time')} を無視")
                 # 時間範囲をクリアして、後で09:00-18:00に設定されるようにする
                 d['time'] = None
                 d['end_time'] = None
@@ -228,6 +231,36 @@ class AIService:
                     end_time_obj = time_obj + timedelta(hours=1)
                     d['end_time'] = end_time_obj.strftime('%H:%M')
                     print(f"[DEBUG] 本日の終了時間を1時間後に強制設定: {d.get('time')} -> {d['end_time']}")
+            # 今週
+            if re.search(r'今週', phrase):
+                # 今週の月曜日を計算
+                current_weekday = now.weekday()
+                # 現在の曜日から今週の月曜日までの日数を計算（マイナス値になる）
+                days_until_monday = -current_weekday
+                this_monday = now + timedelta(days=days_until_monday)
+                # 日付のみを取得（時刻は0:00に、タイムゾーンは維持）
+                this_monday_date = this_monday.date()
+                
+                # 今週の7日間を生成
+                week_dates = []
+                for i in range(7):
+                    week_date = this_monday_date + timedelta(days=i)
+                    week_dates.append(week_date.strftime('%Y-%m-%d'))
+                
+                # 今週の各日付に対して空き時間確認のエントリを作成
+                # 「X時間空いている」という表現がある場合でも、時間範囲は09:00-18:00に設定
+                for week_date in week_dates:
+                    week_entry = {
+                        'date': week_date,
+                        'time': '09:00',
+                        'end_time': '18:00'
+                    }
+                    if not any(existing.get('date') == week_date for existing in new_dates):
+                        new_dates.append(week_entry)
+                        print(f"[DEBUG] 今週の日付を追加: {week_date} (時間範囲: 09:00-18:00)")
+                
+                # 元のエントリは削除（今週の処理で置き換え）
+                continue
             # 来週
             if re.search(r'来週', phrase):
                 # 来週の月曜日を計算
