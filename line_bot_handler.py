@@ -775,19 +775,18 @@ class LineBotHandler:
             
             print(f"[DEBUG] 全日付処理完了、free_slots_by_frame: {free_slots_by_frame}")
             
-            # 最小連続空き時間が指定されている場合、条件を満たす日だけをフィルタリング
+            # 最小連続空き時間が指定されている場合、各日の空き時間スロットから指定時間以上のものだけをフィルタリング
             if min_free_hours is not None:
-                print(f"[DEBUG] 最小連続空き時間でフィルタリング開始: {min_free_hours}時間")
+                print(f"[DEBUG] 最小連続空き時間でスロットフィルタリング開始: {min_free_hours}時間")
                 jst = pytz.timezone('Asia/Tokyo')
-                filtered_free_slots_by_frame = []
                 min_free_minutes = min_free_hours * 60
                 
                 for frame in free_slots_by_frame:
                     date_str = frame['date']
                     slots = frame['free_slots']
                     
-                    # この日の空き時間スロットの中で、指定時間以上の連続空き時間があるかチェック
-                    has_long_enough_slot = False
+                    # この日の空き時間スロットの中で、指定時間以上の連続空き時間があるスロットだけをフィルタリング
+                    filtered_slots = []
                     for slot in slots:
                         slot_start = slot['start']
                         slot_end = slot['end']
@@ -798,18 +797,16 @@ class LineBotHandler:
                         slot_duration = (slot_end_dt - slot_start_dt).total_seconds() / 60  # 分単位
                         
                         if slot_duration >= min_free_minutes:
-                            has_long_enough_slot = True
-                            print(f"[DEBUG] 日付 {date_str} に {slot_duration}分（{slot_duration/60:.1f}時間）の連続空き時間を発見: {slot_start}〜{slot_end}")
-                            break
+                            filtered_slots.append(slot)
+                            print(f"[DEBUG] 日付 {date_str} に {slot_duration}分（{slot_duration/60:.1f}時間）の連続空き時間を保持: {slot_start}〜{slot_end}")
+                        else:
+                            print(f"[DEBUG] 日付 {date_str} の空き時間スロット {slot_start}〜{slot_end} は {slot_duration}分で条件未満のため除外")
                     
-                    if has_long_enough_slot:
-                        filtered_free_slots_by_frame.append(frame)
-                        print(f"[DEBUG] 日付 {date_str} は条件を満たしているため追加")
-                    else:
-                        print(f"[DEBUG] 日付 {date_str} は条件を満たしていないため除外")
+                    # フィルタリング後のスロットで更新（スロットが空でも日付は残す）
+                    frame['free_slots'] = filtered_slots
+                    print(f"[DEBUG] 日付 {date_str} のフィルタリング後: {len(filtered_slots)}件のスロット")
                 
-                free_slots_by_frame = filtered_free_slots_by_frame
-                print(f"[DEBUG] フィルタリング後: {len(free_slots_by_frame)}日")
+                print(f"[DEBUG] スロットフィルタリング完了")
             
             print(f"[DEBUG] format_free_slots_response_by_frame呼び出し")
             response_text = self.ai_service.format_free_slots_response_by_frame(free_slots_by_frame, min_free_hours=min_free_hours)
