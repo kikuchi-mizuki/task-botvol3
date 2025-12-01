@@ -73,13 +73,13 @@ class AIService:
                 "{\n  \"task_type\": \"availability_check\",\n  \"dates\": [\n    {\n      \"date\": \"2025-07-08\",\n      \"time\": \"18:00\",\n      \"end_time\": \"23:59\"\n    }\n  ]\n}\n"
                 "\n"
                 "移動時間指定の空き時間確認の場合:\n"
-                "{\n  \"task_type\": \"availability_check\",\n  \"travel_time_minutes\": 60,\n  \"dates\": [\n    {\n      \"date\": \"2025-07-08\",\n      \"time\": \"08:00\",\n      \"end_time\": \"22:00\"\n    }\n  ]\n}\n"
+                "{\n  \"task_type\": \"availability_check\",\n  \"travel_time_minutes\": 60,\n  \"dates\": [\n    {\n      \"date\": \"2025-07-08\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    }\n  ]\n}\n"
                 "\n"
                 "来週の空き時間確認の場合:\n"
-                "{\n  \"task_type\": \"availability_check\",\n  \"dates\": [\n    {\n      \"date\": \"2025-01-20\",\n      \"time\": \"08:00\",\n      \"end_time\": \"22:00\"\n    },\n    {\n      \"date\": \"2025-01-21\",\n      \"time\": \"08:00\",\n      \"end_time\": \"22:00\"\n    },\n    {\n      \"date\": \"2025-01-22\",\n      \"time\": \"08:00\",\n      \"end_time\": \"22:00\"\n    },\n    {\n      \"date\": \"2025-01-23\",\n      \"time\": \"08:00\",\n      \"end_time\": \"22:00\"\n    },\n    {\n      \"date\": \"2025-01-24\",\n      \"time\": \"08:00\",\n      \"end_time\": \"22:00\"\n    },\n    {\n      \"date\": \"2025-01-25\",\n      \"time\": \"08:00\",\n      \"end_time\": \"22:00\"\n    },\n    {\n      \"date\": \"2025-01-26\",\n      \"time\": \"08:00\",\n      \"end_time\": \"22:00\"\n    }\n  ]\n}\n"
+                "{\n  \"task_type\": \"availability_check\",\n  \"dates\": [\n    {\n      \"date\": \"2025-01-20\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    },\n    {\n      \"date\": \"2025-01-21\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    },\n    {\n      \"date\": \"2025-01-22\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    },\n    {\n      \"date\": \"2025-01-23\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    },\n    {\n      \"date\": \"2025-01-24\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    },\n    {\n      \"date\": \"2025-01-25\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    },\n    {\n      \"date\": \"2025-01-26\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    }\n  ]\n}\n"
                 "\n"
                 "場所指定の空き時間確認の場合:\n"
-                "{\n  \"task_type\": \"availability_check\",\n  \"location\": \"東京\",\n  \"dates\": [\n    {\n      \"date\": \"2025-01-20\",\n      \"time\": \"08:00\",\n      \"end_time\": \"22:00\"\n    }\n  ]\n}\n"
+                "{\n  \"task_type\": \"availability_check\",\n  \"location\": \"東京\",\n  \"dates\": [\n    {\n      \"date\": \"2025-01-20\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    }\n  ]\n}\n"
                 "\n"
                 "予定追加の場合:\n"
                 "{\n  \"task_type\": \"add_event\",\n  \"dates\": [\n    {\n      \"date\": \"2025-07-14\",\n      \"time\": \"20:00\",\n      \"end_time\": \"21:00\",\n      \"title\": \"田中さんMTG\",\n      \"description\": \"新作アプリの件\"\n    }\n  ]\n}\n"
@@ -177,9 +177,9 @@ class AIService:
             if re.search(r'明日', phrase):
                 d['date'] = (now + timedelta(days=1)).strftime('%Y-%m-%d')
                 if not d.get('time'):
-                    d['time'] = '08:00'
+                    d['time'] = '09:00'
                 if not d.get('end_time'):
-                    d['end_time'] = '22:00'
+                    d['end_time'] = '18:00'
             # 今日
             if re.search(r'今日', phrase):
                 d['date'] = now.strftime('%Y-%m-%d')
@@ -246,8 +246,8 @@ class AIService:
                 for week_date in week_dates:
                     week_entry = {
                         'date': week_date,
-                        'time': '08:00',
-                        'end_time': '22:00'
+                        'time': '09:00',
+                        'end_time': '18:00'
                     }
                     if not any(existing.get('date') == week_date for existing in new_dates):
                         new_dates.append(week_entry)

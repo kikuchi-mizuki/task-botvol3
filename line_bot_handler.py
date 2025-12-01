@@ -560,8 +560,8 @@ class LineBotHandler:
                 date_str = current_date.isoformat()
                 dates_info.append({
                     'date': date_str,
-                    'time': '08:00',
-                    'end_time': '22:00'
+                    'time': '09:00',
+                    'end_time': '18:00'
                 })
                 current_date += timedelta(days=1)
             
@@ -665,10 +665,10 @@ class LineBotHandler:
                             events = filtered_events
                             print(f"[DEBUG] 終日マーカーを除いた予定を使用: {len(events)}件")
                         
-                        # 8:00〜22:00の間で空き時間を返す
-                        day_start = "08:00"
-                        day_end = "22:00"
-                        # 枠の範囲と8:00〜22:00の重なり部分だけを対象にする
+                        # 9:00〜18:00の間で空き時間を返す
+                        day_start = "09:00"
+                        day_end = "18:00"
+                        # 枠の範囲と9:00〜18:00の重なり部分だけを対象にする
                         slot_start = max(start_time, day_start)
                         slot_end = min(end_time, day_end)
                         
