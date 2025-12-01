@@ -286,7 +286,7 @@ class LineBotHandler:
                     if 1 <= month_num <= 12:
                         location = ai_result.get('location', '')
                         travel_time_minutes = ai_result.get('travel_time_minutes', None)
-                        return self._handle_month_availability(month_num, line_user_id, location=location, travel_time_minutes=travel_time_minutes)
+                        return self._handle_month_availability(month_num, line_user_id, location=location, travel_time_minutes=travel_time_minutes, original_text=user_message)
             
             if 'error' in ai_result:
                 # AI処理に失敗した場合、ガイダンスメッセージを返す
@@ -301,7 +301,7 @@ class LineBotHandler:
                 travel_time_minutes = ai_result.get('travel_time_minutes', None)
                 print(f"[DEBUG] location: {location}")
                 print(f"[DEBUG] travel_time_minutes: {travel_time_minutes}")
-                return self._handle_availability_check(ai_result.get('dates', []), line_user_id, location=location, travel_time_minutes=travel_time_minutes)
+                return self._handle_availability_check(ai_result.get('dates', []), line_user_id, location=location, travel_time_minutes=travel_time_minutes, original_text=user_message)
             elif task_type == 'add_event':
                 # 予定追加時の重複確認ロジック（複数予定対応）
                 if not self.calendar_service:
@@ -535,7 +535,7 @@ class LineBotHandler:
             print(f"[DEBUG] 複数予定処理エラー: {e}")
             return TextSendMessage(text=f"予定の処理中にエラーが発生しました: {str(e)}")
     
-    def _handle_month_availability(self, month_num, line_user_id, location=None, travel_time_minutes=None):
+    def _handle_month_availability(self, month_num, line_user_id, location=None, travel_time_minutes=None, original_text=''):
         """月全体の空き時間を処理します"""
         import calendar
         try:
@@ -568,7 +568,7 @@ class LineBotHandler:
             print(f"[DEBUG] 月全体の空き時間処理: {year}年{month_num}月 ({len(dates_info)}日), location: {location}, travel_time_minutes: {travel_time_minutes}")
             
             # 通常の空き時間チェック処理を呼び出し
-            return self._handle_availability_check(dates_info, line_user_id, location=location, travel_time_minutes=travel_time_minutes)
+            return self._handle_availability_check(dates_info, line_user_id, location=location, travel_time_minutes=travel_time_minutes, original_text=original_text)
             
         except Exception as e:
             print(f"[DEBUG] 月全体の空き時間処理でエラー: {e}")
@@ -576,7 +576,7 @@ class LineBotHandler:
             traceback.print_exc()
             return TextSendMessage(text=f"月の空き時間確認でエラーが発生しました: {str(e)}")
     
-    def _handle_availability_check(self, dates_info, line_user_id, location=None, travel_time_minutes=None):
+    def _handle_availability_check(self, dates_info, line_user_id, location=None, travel_time_minutes=None, original_text=''):
         """空き時間確認を処理します"""
         try:
             print(f"[DEBUG] _handle_availability_check開始")
@@ -584,6 +584,7 @@ class LineBotHandler:
             print(f"[DEBUG] line_user_id: {line_user_id}")
             print(f"[DEBUG] location: {location}")
             print(f"[DEBUG] travel_time_minutes: {travel_time_minutes}")
+            print(f"[DEBUG] original_text: {original_text}")
             
             # ユーザーの認証状態をチェック
             if not self._check_user_auth(line_user_id):
@@ -601,6 +602,20 @@ class LineBotHandler:
             if not dates_info:
                 print(f"[DEBUG] dates_infoが空")
                 return TextSendMessage(text="日付を正しく認識できませんでした。\n\n例: 「明日7/7 15:00〜15:30の空き時間を教えて」")
+            
+            # 夕食などのキーワードをチェック
+            dinner_keywords = ['夕食', '夜食', 'ディナー', 'dinner', '夕飯', '夜ご飯', '晩ご飯', '夕ご飯']
+            is_dinner_time = any(keyword in original_text for keyword in dinner_keywords)
+            
+            # 夕食の場合は時間範囲を18:00~22:00に調整
+            if is_dinner_time:
+                print(f"[DEBUG] 夕食キーワードを検出、時間範囲を18:00~22:00に調整")
+                for date_info in dates_info:
+                    # デフォルト時間（09:00-18:00）の場合のみ変更
+                    if date_info.get('time') == '09:00' and date_info.get('end_time') == '18:00':
+                        date_info['time'] = '18:00'
+                        date_info['end_time'] = '22:00'
+                        print(f"[DEBUG] 日付 {date_info.get('date')} の時間範囲を18:00~22:00に変更")
             
             print(f"[DEBUG] 空き時間計算開始")
             free_slots_by_frame = []
@@ -665,10 +680,14 @@ class LineBotHandler:
                             events = filtered_events
                             print(f"[DEBUG] 終日マーカーを除いた予定を使用: {len(events)}件")
                         
-                        # 9:00〜18:00の間で空き時間を返す
-                        day_start = "09:00"
-                        day_end = "18:00"
-                        # 枠の範囲と9:00〜18:00の重なり部分だけを対象にする
+                        # 夕食の場合は18:00〜22:00、それ以外は9:00〜18:00の間で空き時間を返す
+                        if is_dinner_time:
+                            day_start = "18:00"
+                            day_end = "22:00"
+                        else:
+                            day_start = "09:00"
+                            day_end = "18:00"
+                        # 枠の範囲と指定時間範囲の重なり部分だけを対象にする
                         slot_start = max(start_time, day_start)
                         slot_end = min(end_time, day_end)
                         
