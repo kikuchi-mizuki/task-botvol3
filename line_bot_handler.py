@@ -703,19 +703,29 @@ class LineBotHandler:
                         else:
                             day_start = "09:00"
                             day_end = "18:00"
-                        # 枠の範囲と指定時間範囲の重なり部分だけを対象にする
-                        slot_start = max(start_time, day_start)
-                        slot_end = min(end_time, day_end)
                         
-                        print(f"[DEBUG] 日付{i+1}のスロット範囲: slot_start={slot_start}, slot_end={slot_end}")
+                        # 日をまたぐ時間範囲の処理（例：22:00〜02:00）
+                        # start_time と end_time をdatetimeオブジェクトに変換して比較
+                        start_dt_temp = jst.localize(datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M"))
+                        end_dt_temp = jst.localize(datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M"))
                         
-                        slot_start_dt = jst.localize(datetime.strptime(f"{date_str} {slot_start}", "%Y-%m-%d %H:%M"))
-                        slot_end_dt = jst.localize(datetime.strptime(f"{date_str} {slot_end}", "%Y-%m-%d %H:%M"))
+                        # end_time が start_time より小さい場合は翌日とみなす
+                        if end_dt_temp <= start_dt_temp:
+                            end_dt_temp = end_dt_temp + timedelta(days=1)
                         
-                        print(f"[DEBUG] 日付{i+1}のスロットdatetime: slot_start_dt={slot_start_dt}, slot_end_dt={slot_end_dt}")
+                        day_start_dt = jst.localize(datetime.strptime(f"{date_str} {day_start}", "%Y-%m-%d %H:%M"))
+                        day_end_dt = jst.localize(datetime.strptime(f"{date_str} {day_end}", "%Y-%m-%d %H:%M"))
                         
-                        if slot_start < slot_end:
+                        # 範囲の重なりを計算
+                        slot_start_dt = max(start_dt_temp, day_start_dt)
+                        slot_end_dt = min(end_dt_temp, day_end_dt)
+                        
+                        print(f"[DEBUG] 日付{i+1}のスロット範囲: slot_start_dt={slot_start_dt}, slot_end_dt={slot_end_dt}")
+                        
+                        # 範囲が有効かチェック（重なりがあるか）
+                        if slot_start_dt < slot_end_dt:
                             print(f"[DEBUG] 日付{i+1}の空き時間計算開始")
+                            # slot_start_dtとslot_end_dtをそのまま使用（既にdatetimeオブジェクト）
                             free_slots = self.calendar_service.find_free_slots_for_day(slot_start_dt, slot_end_dt, events)
                             print(f"[DEBUG] 日付{i+1}の空き時間結果: {free_slots}")
                             
@@ -748,13 +758,18 @@ class LineBotHandler:
                                 free_slots = filtered_free_slots
                                 print(f"[DEBUG] 移動時間フィルタ後: {len(free_slots)}件")
                         else:
-                            print(f"[DEBUG] 日付{i+1}のスロット範囲が無効: {slot_start} >= {slot_end}")
-                            free_slots = []
+                            print(f"[DEBUG] 日付{i+1}のスロット範囲が無効（範囲が重ならない）: {slot_start_dt} >= {slot_end_dt}, スキップ")
+                            # 範囲が重ならない場合は、その日の処理をスキップ
+                            continue
+                        
+                        # スロット範囲の文字列表現を取得
+                        slot_start_str = slot_start_dt.strftime('%H:%M')
+                        slot_end_str = slot_end_dt.strftime('%H:%M')
                         
                         free_slots_by_frame.append({
                             'date': date_str,
-                            'start_time': slot_start,
-                            'end_time': slot_end,
+                            'start_time': slot_start_str,
+                            'end_time': slot_end_str,
                             'free_slots': free_slots
                         })
                         print(f"[DEBUG] 日付{i+1}のfree_slots_by_frame追加完了")
