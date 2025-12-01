@@ -824,7 +824,7 @@ class AIService:
                     response += f"・{slot['start']}〜{slot['end']}\n"
         return response
     
-    def format_free_slots_response_by_frame(self, free_slots_by_frame):
+    def format_free_slots_response_by_frame(self, free_slots_by_frame, min_free_hours=None):
         """
         free_slots_by_frame: [
             {'date': 'YYYY-MM-DD', 'start_time': 'HH:MM', 'end_time': 'HH:MM', 'free_slots': [{'start': 'HH:MM', 'end': 'HH:MM'}, ...]},
@@ -834,10 +834,13 @@ class AIService:
         """
         print(f"[DEBUG] format_free_slots_response_by_frame開始")
         print(f"[DEBUG] 入力データ: {free_slots_by_frame}")
+        print(f"[DEBUG] min_free_hours: {min_free_hours}")
         
         jst = pytz.timezone('Asia/Tokyo')
         if not free_slots_by_frame:
             print(f"[DEBUG] free_slots_by_frameが空")
+            if min_free_hours:
+                return f"✅{min_free_hours}時間以上連続して空いている時間はありませんでした。"
             return "✅空き時間はありませんでした。"
             
         # 日付ごとに空き時間をまとめる
@@ -856,7 +859,10 @@ class AIService:
                 
         print(f"[DEBUG] 日付ごとの空き時間: {date_slots}")
         
-        response = "✅以下が空き時間です！\n\n"
+        if min_free_hours:
+            response = f"✅{min_free_hours}時間以上連続して空いている時間です！\n\n"
+        else:
+            response = "✅以下が空き時間です！\n\n"
         for date in sorted(date_slots.keys()):
             slots = sorted(list(date_slots[date]))
             print(f"[DEBUG] 日付{date}の最終空き時間: {slots}")
@@ -874,7 +880,14 @@ class AIService:
                 response += f"・{start}〜{end}\n"
                     
         # 全ての日付で空き時間がない場合
-        if response == "✅以下が空き時間です！\n\n":
+        if min_free_hours:
+            expected_response_start = f"✅{min_free_hours}時間以上連続して空いている時間です！\n\n"
+        else:
+            expected_response_start = "✅以下が空き時間です！\n\n"
+        
+        if response == expected_response_start:
+            if min_free_hours:
+                return f"✅{min_free_hours}時間以上連続して空いている時間はありませんでした。"
             return "✅空き時間はありませんでした。"
                     
         print(f"[DEBUG] 最終レスポンス: {response}")

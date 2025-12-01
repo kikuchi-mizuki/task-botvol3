@@ -617,6 +617,22 @@ class LineBotHandler:
                         date_info['end_time'] = '22:00'
                         print(f"[DEBUG] 日付 {date_info.get('date')} の時間範囲を18:00~22:00に変更")
             
+            # 最小連続空き時間を抽出（例：「2時間空いてる」「3時間空いている」）
+            min_free_hours = None
+            import re
+            # パターン: 「X時間空いている」「X時間空いてる」「X時間以上空いている」など
+            time_patterns = [
+                r'(\d+(?:\.\d+)?)\s*時間\s*空い(?:てる|ている|てる)',
+                r'(\d+(?:\.\d+)?)\s*時間\s*以上\s*空い(?:てる|ている|てる)',
+                r'(\d+(?:\.\d+)?)\s*時間\s*連続',
+            ]
+            for pattern in time_patterns:
+                match = re.search(pattern, original_text)
+                if match:
+                    min_free_hours = float(match.group(1))
+                    print(f"[DEBUG] 最小連続空き時間を検出: {min_free_hours}時間")
+                    break
+            
             print(f"[DEBUG] 空き時間計算開始")
             free_slots_by_frame = []
             for i, date_info in enumerate(dates_info):
@@ -759,8 +775,44 @@ class LineBotHandler:
             
             print(f"[DEBUG] 全日付処理完了、free_slots_by_frame: {free_slots_by_frame}")
             
+            # 最小連続空き時間が指定されている場合、条件を満たす日だけをフィルタリング
+            if min_free_hours is not None:
+                print(f"[DEBUG] 最小連続空き時間でフィルタリング開始: {min_free_hours}時間")
+                jst = pytz.timezone('Asia/Tokyo')
+                filtered_free_slots_by_frame = []
+                min_free_minutes = min_free_hours * 60
+                
+                for frame in free_slots_by_frame:
+                    date_str = frame['date']
+                    slots = frame['free_slots']
+                    
+                    # この日の空き時間スロットの中で、指定時間以上の連続空き時間があるかチェック
+                    has_long_enough_slot = False
+                    for slot in slots:
+                        slot_start = slot['start']
+                        slot_end = slot['end']
+                        
+                        # 時間文字列をdatetimeに変換して時間差を計算
+                        slot_start_dt = jst.localize(datetime.strptime(f"{date_str} {slot_start}", "%Y-%m-%d %H:%M"))
+                        slot_end_dt = jst.localize(datetime.strptime(f"{date_str} {slot_end}", "%Y-%m-%d %H:%M"))
+                        slot_duration = (slot_end_dt - slot_start_dt).total_seconds() / 60  # 分単位
+                        
+                        if slot_duration >= min_free_minutes:
+                            has_long_enough_slot = True
+                            print(f"[DEBUG] 日付 {date_str} に {slot_duration}分（{slot_duration/60:.1f}時間）の連続空き時間を発見: {slot_start}〜{slot_end}")
+                            break
+                    
+                    if has_long_enough_slot:
+                        filtered_free_slots_by_frame.append(frame)
+                        print(f"[DEBUG] 日付 {date_str} は条件を満たしているため追加")
+                    else:
+                        print(f"[DEBUG] 日付 {date_str} は条件を満たしていないため除外")
+                
+                free_slots_by_frame = filtered_free_slots_by_frame
+                print(f"[DEBUG] フィルタリング後: {len(free_slots_by_frame)}日")
+            
             print(f"[DEBUG] format_free_slots_response_by_frame呼び出し")
-            response_text = self.ai_service.format_free_slots_response_by_frame(free_slots_by_frame)
+            response_text = self.ai_service.format_free_slots_response_by_frame(free_slots_by_frame, min_free_hours=min_free_hours)
             print(f"[DEBUG] レスポンス生成完了: {response_text}")
             
             return TextSendMessage(text=response_text)
