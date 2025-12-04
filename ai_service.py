@@ -39,37 +39,42 @@ class AIService:
                 "分析ルール:\n"
                 "1. 複数の日時がある場合は全て抽出\n"
                 "2. 日本語の日付表現（今日、明日、来週月曜日など）を具体的な日付に変換\n"
-                "3. **「今週」「来週」という表現は必ず1週間分（7日間）の日付として抽出してください**\n"
+                "3. **日付範囲（例：12/5-12/28、1/10-1/20）は必ず開始日から終了日までの全ての日付を個別に抽出してください**\n"
+                "   - 例：「12/5-12/28」→ 12/5, 12/6, 12/7, ..., 12/28 の全ての日付を個別に抽出\n"
+                "   - 例：「1/10-1/20」→ 1/10, 1/11, 1/12, ..., 1/20 の全ての日付を個別に抽出\n"
+                "   - 日付範囲は必ず全ての日付を展開し、1日ずつ個別のエントリとして抽出してください\n"
+                "4. **「今週」「来週」という表現は必ず1週間分（7日間）の日付として抽出してください**\n"
                 "   - 例：「今週」→ 今週月曜日から日曜日までの7日間\n"
                 "   - 例：「来週」→ 来週月曜日から日曜日までの7日間\n"
                 "   - 例：「今週の空き時間」→ 今週月曜日〜日曜日の7日間の空き時間\n"
                 "   - 例：「来週の空き時間」→ 来週月曜日〜日曜日の7日間の空き時間\n"
-                "4. 月が指定されていない場合（例：16日、17日）は今月として認識\n"
-                "5. 時間表現（午前9時、14時30分、9-10時、9時-10時、9:00-10:00など）を24時間形式に変換\n"
-                "6. **タスクの種類を判定（最重要）**:\n   - 日時のみ（タイトルや内容がない）場合は必ず「availability_check」（空き時間確認）\n   - 日時+タイトル/予定内容がある場合は「add_event」（予定追加）\n   - 例：「7/8 18時以降」→ availability_check（日時のみ）\n   - 例：「7/10 18:00〜20:00」→ availability_check（日時のみ）\n   - 例：「・7/10 9-10時\n・7/11 9-10時」→ availability_check（日時のみ複数）\n   - 例：「7/10 9-10時」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7/10 9時-10時」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7/10 9:00-10:00」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7月18日 11:00-14:00,15:00-17:00」→ availability_check（日時のみ複数）\n   - 例：「7月20日 13:00-0:00」→ availability_check（日時のみ）\n   - 例：「明日の午前9時から会議を追加して」→ add_event（日時+予定内容）\n   - 例：「来週月曜日の14時から打ち合わせ」→ add_event（日時+予定内容）\n   - 例：「田中さんとMTG」→ add_event（予定内容あり）\n   - 例：「会議を追加」→ add_event（予定内容あり）\n"
-                "7. 自然言語の時間表現は必ず具体的な時刻範囲・日付範囲に変換してください。\n"
+                "5. 月が指定されていない場合（例：16日、17日）は今月として認識\n"
+                "6. 時間表現（午前9時、14時30分、9-10時、9時-10時、9:00-10:00など）を24時間形式に変換\n"
+                "7. **タスクの種類を判定（最重要）**:\n   - 日時のみ（タイトルや内容がない）場合は必ず「availability_check」（空き時間確認）\n   - 日時+タイトル/予定内容がある場合は「add_event」（予定追加）\n   - 例：「7/8 18時以降」→ availability_check（日時のみ）\n   - 例：「7/10 18:00〜20:00」→ availability_check（日時のみ）\n   - 例：「・7/10 9-10時\n・7/11 9-10時」→ availability_check（日時のみ複数）\n   - 例：「7/10 9-10時」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7/10 9時-10時」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7/10 9:00-10:00」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7月18日 11:00-14:00,15:00-17:00」→ availability_check（日時のみ複数）\n   - 例：「7月20日 13:00-0:00」→ availability_check（日時のみ）\n   - 例：「明日の午前9時から会議を追加して」→ add_event（日時+予定内容）\n   - 例：「来週月曜日の14時から打ち合わせ」→ add_event（日時+予定内容）\n   - 例：「田中さんとMTG」→ add_event（予定内容あり）\n   - 例：「会議を追加」→ add_event（予定内容あり）\n"
+                "8. 自然言語の時間表現は必ず具体的な時刻範囲・日付範囲に変換してください。\n"
                 "   例：'18時以降'→'18:00〜23:59'、'終日'→'00:00〜23:59'、'今日'→'現在時刻〜23:59'、'今日から1週間'→'今日〜7日後の23:59'。\n"
                 "   終了時間が指定されていない場合は1時間の予定として認識してください（例：'10時'→'10:00〜11:00'）。\n"
                 "   **重要：「X時間空いている日」「X時間空いてる日」という表現の「X時間」は時間範囲ではなく、最小連続空き時間の条件です。**\n"
                 "   「来週2時間空いている日」のような表現では、「2時間」を時間範囲（例：00:00-02:00）として抽出しないでください。\n"
                 "   時間範囲が指定されていない場合は、timeとend_timeフィールドを空欄にするか、デフォルトの範囲（09:00-18:00）を使用してください。\n"
-                "8. 箇条書き（・や-）、改行、スペース、句読点で区切られている場合も、すべての日時・時間帯を抽出してください。\n"
+                "9. 箇条書き（・や-）、改行、スペース、句読点で区切られている場合も、すべての日時・時間帯を抽出してください。\n"
                 "   例：'・7/10 9-10時\n・7/11 9-10時' → 2件の予定として抽出\n"
                 "   例：'7/11 15:00〜16:00 18:00〜19:00' → 2件の予定として抽出\n"
                 "   例：'7/12 終日' → 1件の終日予定として抽出\n"
-                "9. 同じ日付の終日予定は1件だけ抽出してください。\n"
-                "10. 予定タイトル（description）も必ず抽出してください。\n"
-                "11. \"終日\"や\"00:00〜23:59\"の終日枠は、ユーザーが明示的に\"終日\"と書いた場合のみ抽出してください。\n"
-                "12. 1つの日付に複数の時間帯（枠）が指定されている場合は、必ずその枠ごとに抽出してください。\n"
-                "13. 同じ日に部分枠（例: 15:00〜16:00, 18:00〜19:00）がある場合は、その日付の終日枠（00:00〜23:59）は抽出しないでください。\n"
-                "14. 複数の日時・時間帯が入力される場合、全ての時間帯をリストにし、それぞれに対して開始時刻・終了時刻をISO形式（例: 2025-07-11T15:00:00+09:00）で出力してください。\n"
-                "15. 予定タイトル（会議名や打合せ名など）と、説明（議題や詳細、目的など）があれば両方抽出してください。\n"
-                "16. 説明はタイトル以降の文や\"の件\"\"について\"などを優先して抽出してください。\n"
-                "17. **日時のみの入力の場合は必ずavailability_checkとして判定してください。予定の内容や目的が明確に示されていない場合は空き時間確認として扱ってください。**\n"
-                "18. **場所情報（例：東京、大阪など）が入力されている場合は、locationフィールドに抽出してください。**\n"
+                "10. 同じ日付の終日予定は1件だけ抽出してください。\n"
+                "11. 予定タイトル（description）も必ず抽出してください。\n"
+                "12. \"終日\"や\"00:00〜23:59\"の終日枠は、ユーザーが明示的に\"終日\"と書いた場合のみ抽出してください。\n"
+                "13. 1つの日付に複数の時間帯（枠）が指定されている場合は、必ずその枠ごとに抽出してください。\n"
+                "14. 同じ日に部分枠（例: 15:00〜16:00, 18:00〜19:00）がある場合は、その日付の終日枠（00:00〜23:59）は抽出しないでください。\n"
+                "15. 複数の日時・時間帯が入力される場合、全ての時間帯をリストにし、それぞれに対して開始時刻・終了時刻をISO形式（例: 2025-07-11T15:00:00+09:00）で出力してください。\n"
+                "16. 予定タイトル（会議名や打合せ名など）と、説明（議題や詳細、目的など）があれば両方抽出してください。\n"
+                "17. 説明はタイトル以降の文や\"の件\"\"について\"などを優先して抽出してください。\n"
+                "18. **日時のみの入力の場合は必ずavailability_checkとして判定してください。予定の内容や目的が明確に示されていない場合は空き時間確認として扱ってください。**\n"
+                "19. **場所情報（例：東京、大阪など）が入力されている場合は、locationフィールドに抽出してください。**\n"
                 "    - 例：「来月の東京での空き時間を教えて」→ location: '東京'\n"
                 "    - 例：「11月の大阪の空き時間」→ location: '大阪'\n"
-                "19. **移動時間（例：移動時間は1時間、移動に1時間かかる）が入力されている場合は、travel_time_minutesフィールドに抽出してください。**\n"
+                "    - 例：「12/5-12/28東京での空き時間」→ location: '東京'、dates: 12/5から12/28までの全ての日付\n"
+                "20. **移動時間（例：移動時間は1時間、移動に1時間かかる）が入力されている場合は、travel_time_minutesフィールドに抽出してください。**\n"
                 "    - 例：「11月の空き時間を教えて。移動時間は1時間。」→ travel_time_minutes: 60\n"
                 "    - 例：「移動時間30分かかります」→ travel_time_minutes: 30\n"
                 "\n"
@@ -140,6 +145,7 @@ class AIService:
     def _supplement_times(self, parsed, original_text):
         from datetime import datetime, timedelta
         import re
+        from dateutil import parser as date_parser
         jst = pytz.timezone('Asia/Tokyo')
         now = datetime.now(jst)
         logger = logging.getLogger("ai_service")
@@ -148,6 +154,62 @@ class AIService:
         if not parsed or 'dates' not in parsed:
             print(f"[DEBUG] datesが存在しない: {parsed}")
             return parsed
+        
+        # 元のテキストから日付範囲（例：12/5-12/28）を直接検出して展開
+        # パターン: M/D-M/D または M月D日-M月D日
+        date_range_patterns = [
+            (r'(\d{1,2})/(\d{1,2})[/\-〜~](\d{1,2})/(\d{1,2})', True),  # 12/5-12/28
+            (r'(\d{1,2})月(\d{1,2})日[/\-〜~](\d{1,2})月(\d{1,2})日', False),  # 12月5日-12月28日
+        ]
+        
+        for pattern, is_slash_format in date_range_patterns:
+            match = re.search(pattern, original_text)
+            if match:
+                print(f"[DEBUG] 日付範囲パターンを検出: {match.group(0)}")
+                try:
+                    if is_slash_format:
+                        # 12/5-12/28 形式
+                        start_month = int(match.group(1))
+                        start_day = int(match.group(2))
+                        end_month = int(match.group(3))
+                        end_day = int(match.group(4))
+                    else:
+                        # 12月5日-12月28日 形式
+                        start_month = int(match.group(1))
+                        start_day = int(match.group(2))
+                        end_month = int(match.group(3))
+                        end_day = int(match.group(4))
+                    
+                    # 年を決定（現在の年、または来年）
+                    current_year = now.year
+                    start_date = datetime(current_year, start_month, start_day).date()
+                    end_date = datetime(current_year, end_month, end_day).date()
+                    
+                    # 開始日が過去の場合は来年
+                    if start_date < now.date():
+                        start_date = datetime(current_year + 1, start_month, start_day).date()
+                        end_date = datetime(current_year + 1, end_month, end_day).date()
+                    
+                    # 日付範囲を展開
+                    print(f"[DEBUG] 日付範囲を展開: {start_date} から {end_date} まで")
+                    expanded_dates = []
+                    current_date = start_date
+                    while current_date <= end_date:
+                        expanded_dates.append({
+                            'date': current_date.strftime('%Y-%m-%d'),
+                            'time': '09:00',
+                            'end_time': '18:00'
+                        })
+                        current_date += timedelta(days=1)
+                    
+                    # parsed['dates']を展開された日付で置き換え
+                    if expanded_dates:
+                        print(f"[DEBUG] 日付範囲を {len(expanded_dates)} 件に展開")
+                        parsed['dates'] = expanded_dates
+                        break
+                except Exception as e:
+                    print(f"[DEBUG] 日付範囲の展開エラー: {e}")
+        
         allday_dates = set()
         new_dates = []
         # 1. AI抽出を最優先。time, end_timeが空欄のものだけ補完
@@ -157,6 +219,33 @@ class AIService:
         for d in parsed['dates']:
             print(f"[DEBUG] datesループ: {d}")
             phrase = d.get('description', '') or original_text
+            
+            # 日付範囲（end_date）がある場合は展開
+            if d.get('end_date'):
+                start_date_str = d.get('date')
+                end_date_str = d.get('end_date')
+                print(f"[DEBUG] 日付範囲を検出: {start_date_str} から {end_date_str} まで展開")
+                try:
+                    start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                    end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                    current_date = start_date
+                    while current_date <= end_date:
+                        date_entry = d.copy()
+                        date_entry['date'] = current_date.strftime('%Y-%m-%d')
+                        date_entry.pop('end_date', None)  # end_dateフィールドを削除
+                        # 時間範囲が設定されていない場合は09:00-18:00を設定
+                        if not date_entry.get('time'):
+                            date_entry['time'] = '09:00'
+                        if not date_entry.get('end_time'):
+                            date_entry['end_time'] = '18:00'
+                        new_dates.append(date_entry)
+                        print(f"[DEBUG] 日付範囲から日付を追加: {current_date.strftime('%Y-%m-%d')}")
+                        current_date += timedelta(days=1)
+                    continue  # 元のエントリはスキップ（展開済み）
+                except Exception as e:
+                    print(f"[DEBUG] 日付範囲の展開エラー: {e}")
+                    # エラーが発生した場合は元のエントリをそのまま使用
+            
             # 「今週」「来週」が含まれる場合は、時間範囲を無視して処理を続行（後で上書きされる）
             if (has_this_week or has_next_week) and d.get('time') and d.get('end_time'):
                 print(f"[DEBUG] 今週/来週が含まれるため、AIが抽出した時間範囲 {d.get('time')}-{d.get('end_time')} を無視")
