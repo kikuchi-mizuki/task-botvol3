@@ -280,6 +280,17 @@ class AIService:
             print(f"[DEBUG] datesが存在しない: {parsed}")
             return parsed
 
+        # dates が空の場合は今日の日付をデフォルトとして追加
+        if not parsed.get('dates'):
+            print(f"[DEBUG] datesが空のため、今日の日付をデフォルトとして追加")
+            today = now.strftime('%Y-%m-%d')
+            parsed['dates'] = [{
+                'date': today,
+                'time': '09:00',
+                'end_time': '18:00'
+            }]
+            print(f"[DEBUG] デフォルト日付追加: {parsed['dates']}")
+
         # 元のテキストから日付範囲（例：12/5-12/28）を直接検出して展開
         date_range_patterns = [
             (r'(\d{1,2})/(\d{1,2})[/\-〜~](\d{1,2})/(\d{1,2})', True),
