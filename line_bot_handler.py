@@ -290,7 +290,7 @@ class LineBotHandler:
             
             if 'error' in ai_result:
                 # AI処理に失敗した場合、ガイダンスメッセージを返す
-                return TextSendMessage(text="日時の送信で空き時間が分かります！\n日時と内容の送信で予定を追加します！\n\n例：\n・「明日の空き時間」\n・「7/15 15:00〜16:00の空き時間」\n・「明日の午前9時から会議を追加して」\n・「来週月曜日の14時から打ち合わせ」")
+                return TextSendMessage(text="📅 このボットは空き時間確認専用です！\n\n日時を送信すると空き時間を表示します。\n\n例：\n・「明日の空き時間」\n・「来週月曜日 9-18時」\n・「12/5-12/10の空き時間」\n・「来週2時間空いている日」")
             
             # タスクタイプに基づいて処理
             task_type = ai_result.get('task_type', 'add_event')
@@ -315,7 +315,7 @@ class LineBotHandler:
                 return self._handle_multiple_events(dates, line_user_id)
             else:
                 # 未対応コマンドの場合もガイダンスメッセージ
-                return TextSendMessage(text="日時の送信で空き時間が分かります！\n日時と内容の送信で予定を追加します！\n\n例：\n・「明日の空き時間」\n・「7/15 15:00〜16:00の空き時間」\n・「明日の午前9時から会議を追加して」\n・「来週月曜日の14時から打ち合わせ」")
+                return TextSendMessage(text="📅 このボットは空き時間確認専用です！\n\n日時を送信すると空き時間を表示します。\n\n例：\n・「明日の空き時間」\n・「来週月曜日 9-18時」\n・「12/5-12/10の空き時間」\n・「来週2時間空いている日」")
         except Exception as e:
             return TextSendMessage(text=f"エラーが発生しました: {str(e)}")
     
