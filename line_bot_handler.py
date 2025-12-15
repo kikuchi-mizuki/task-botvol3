@@ -298,10 +298,22 @@ class LineBotHandler:
             if task_type == 'availability_check':
                 print(f"[DEBUG] dates_info: {ai_result.get('dates', [])}")
                 location = ai_result.get('location', '')
+                current_location = ai_result.get('current_location', '')
+                meeting_duration_hours = ai_result.get('meeting_duration_hours', None)
                 travel_time_minutes = ai_result.get('travel_time_minutes', None)
                 print(f"[DEBUG] location: {location}")
+                print(f"[DEBUG] current_location: {current_location}")
+                print(f"[DEBUG] meeting_duration_hours: {meeting_duration_hours}")
                 print(f"[DEBUG] travel_time_minutes: {travel_time_minutes}")
-                return self._handle_availability_check(ai_result.get('dates', []), line_user_id, location=location, travel_time_minutes=travel_time_minutes, original_text=user_message)
+                return self._handle_availability_check(
+                    ai_result.get('dates', []),
+                    line_user_id,
+                    location=location,
+                    current_location=current_location,
+                    meeting_duration_hours=meeting_duration_hours,
+                    travel_time_minutes=travel_time_minutes,
+                    original_text=user_message
+                )
             elif task_type == 'add_event':
                 # 予定追加時の重複確認ロジック（複数予定対応）
                 if not self.calendar_service:
@@ -566,9 +578,17 @@ class LineBotHandler:
                 current_date += timedelta(days=1)
             
             print(f"[DEBUG] 月全体の空き時間処理: {year}年{month_num}月 ({len(dates_info)}日), location: {location}, travel_time_minutes: {travel_time_minutes}")
-            
+
             # 通常の空き時間チェック処理を呼び出し
-            return self._handle_availability_check(dates_info, line_user_id, location=location, travel_time_minutes=travel_time_minutes, original_text=original_text)
+            return self._handle_availability_check(
+                dates_info,
+                line_user_id,
+                location=location,
+                current_location=None,
+                meeting_duration_hours=None,
+                travel_time_minutes=travel_time_minutes,
+                original_text=original_text
+            )
             
         except Exception as e:
             print(f"[DEBUG] 月全体の空き時間処理でエラー: {e}")
@@ -576,13 +596,15 @@ class LineBotHandler:
             traceback.print_exc()
             return TextSendMessage(text=f"月の空き時間確認でエラーが発生しました: {str(e)}")
     
-    def _handle_availability_check(self, dates_info, line_user_id, location=None, travel_time_minutes=None, original_text=''):
-        """空き時間確認を処理します"""
+    def _handle_availability_check(self, dates_info, line_user_id, location=None, current_location=None, meeting_duration_hours=None, travel_time_minutes=None, original_text=''):
+        """空き時間確認を処理します（移動時間考慮）"""
         try:
             print(f"[DEBUG] _handle_availability_check開始")
             print(f"[DEBUG] dates_info: {dates_info}")
             print(f"[DEBUG] line_user_id: {line_user_id}")
             print(f"[DEBUG] location: {location}")
+            print(f"[DEBUG] current_location: {current_location}")
+            print(f"[DEBUG] meeting_duration_hours: {meeting_duration_hours}")
             print(f"[DEBUG] travel_time_minutes: {travel_time_minutes}")
             print(f"[DEBUG] original_text: {original_text}")
             
@@ -634,14 +656,37 @@ class LineBotHandler:
                     break
             
             # 上記で見つからない場合でも、「2時間」「3時間」のような表現があればそれを最小連続空き時間として扱う
-            if min_free_hours is None:
+            # ただし、meeting_duration_hours が指定されている場合は除外（移動時間計算で使用）
+            if min_free_hours is None and meeting_duration_hours is None:
                 generic_matches = re.findall(r'(\d+(?:\.\d+)?)\s*時間', original_text)
                 if generic_matches:
                     # 複数ある場合はいちばん長い時間を条件として採用
                     hours_list = [float(h) for h in generic_matches]
                     min_free_hours = max(hours_list)
                     print(f"[DEBUG] 一般的な時間表現から最小連続空き時間を検出: {min_free_hours}時間")
-            
+
+            # 移動時間を考慮した必要時間を計算
+            if current_location and location and meeting_duration_hours:
+                from travel_time_service import TravelTimeService
+                travel_service = TravelTimeService()
+
+                total_time_minutes, details = travel_service.calculate_total_required_time(
+                    current_location,
+                    location,
+                    meeting_duration_hours
+                )
+
+                # 必要な連続空き時間（時間単位）
+                min_free_hours = details['total_time_hours']
+
+                print(f"[DEBUG] 移動時間計算完了:")
+                print(f"  現在地: {current_location}")
+                print(f"  目的地: {location}")
+                print(f"  打ち合わせ時間: {meeting_duration_hours}時間")
+                print(f"  往路移動時間: {details['outbound_time_minutes']}分")
+                print(f"  復路移動時間: {details['return_time_minutes']}分")
+                print(f"  必要な合計時間: {min_free_hours}時間")
+
             print(f"[DEBUG] 空き時間計算開始")
             free_slots_by_frame = []
             for i, date_info in enumerate(dates_info):

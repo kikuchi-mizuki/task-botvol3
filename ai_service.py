@@ -67,7 +67,7 @@ class AIService:
             functions = [
                 {
                     "name": "extract_availability_check",
-                    "description": "ユーザーのメッセージから空き時間確認のための日程・時間情報を抽出する",
+                    "description": "ユーザーのメッセージから空き時間確認のための日程・時間・移動情報を抽出する",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -95,7 +95,15 @@ class AIService:
                             },
                             "location": {
                                 "type": "string",
-                                "description": "場所（東京、大阪など、指定されている場合のみ）"
+                                "description": "目的地の場所（横浜、大阪など、打ち合わせや予定がある場所）"
+                            },
+                            "current_location": {
+                                "type": "string",
+                                "description": "現在地（銀座、新宿など、ユーザーが今いる場所）"
+                            },
+                            "meeting_duration_hours": {
+                                "type": "number",
+                                "description": "打ち合わせや予定の所要時間（時間単位）。「2時間打ち合わせ」なら2.0"
                             }
                         },
                         "required": ["dates"]
@@ -136,6 +144,17 @@ class AIService:
 【最小連続空き時間】
 - 「2時間空いている」「3時間空いてる」という表現の「X時間」は時間範囲ではなく、条件です
 - この場合は時間範囲を指定せず、デフォルト（09:00-18:00）を使用してください
+
+【移動と打ち合わせの処理】
+- 「今〇〇にいて、△△で×時間打ち合わせ」のような表現を正確に理解してください:
+  - 〇〇 → current_location（現在地）
+  - △△ → location（目的地）
+  - ×時間 → meeting_duration_hours（打ち合わせ時間）
+- 例: 「今銀座にいて、横浜で2時間打ち合わせ」
+  → current_location: "銀座", location: "横浜", meeting_duration_hours: 2.0
+- 例: 「渋谷から品川に行って3時間会議」
+  → current_location: "渋谷", location: "品川", meeting_duration_hours: 3.0
+- この情報は移動時間の計算に使用されます
 
 【例】
 入力: 「明日と明後日の空き時間」
