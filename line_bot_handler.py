@@ -633,6 +633,15 @@ class LineBotHandler:
                     print(f"[DEBUG] 最小連続空き時間を検出: {min_free_hours}時間")
                     break
             
+            # 上記で見つからない場合でも、「2時間」「3時間」のような表現があればそれを最小連続空き時間として扱う
+            if min_free_hours is None:
+                generic_matches = re.findall(r'(\d+(?:\.\d+)?)\s*時間', original_text)
+                if generic_matches:
+                    # 複数ある場合はいちばん長い時間を条件として採用
+                    hours_list = [float(h) for h in generic_matches]
+                    min_free_hours = max(hours_list)
+                    print(f"[DEBUG] 一般的な時間表現から最小連続空き時間を検出: {min_free_hours}時間")
+            
             print(f"[DEBUG] 空き時間計算開始")
             free_slots_by_frame = []
             for i, date_info in enumerate(dates_info):
