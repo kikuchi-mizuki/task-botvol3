@@ -19,13 +19,283 @@ if not logger.hasHandlers():
 class AIService:
     def __init__(self):
         self.client = openai.OpenAI(api_key=Config.OPENAI_API_KEY)
-    
+        # GPT-4を使用（より高精度）
+        self.model = "gpt-4-turbo-preview"
+        # フォールバック用にGPT-3.5も用意
+        self.fallback_model = "gpt-3.5-turbo"
+
     def _get_jst_now_str(self):
         now = datetime.now(pytz.timezone('Asia/Tokyo'))
         return now.strftime('%Y-%m-%dT%H:%M:%S%z')
-    
+
     def extract_dates_and_times(self, text):
-        """テキストから日時を抽出し、タスクの種類を判定します"""
+        """
+        テキストから日時を抽出し、タスクの種類を判定します
+        二段階処理とFunction Callingを使用して精度向上
+        """
+        try:
+            # 第1段階：ユーザーの意図を理解
+            intent = self._understand_intent(text)
+            logger.info(f"[DEBUG] 意図理解結果: {intent}")
+
+            # 第2段階：日時の詳細抽出（Function Calling使用）
+            extraction_result = self._extract_dates_with_function_calling(text, intent)
+            logger.info(f"[DEBUG] 日時抽出結果: {extraction_result}")
+
+            if 'error' in extraction_result:
+                return extraction_result
+
+            # 抽出結果を補完
+            supplemented = self._supplement_times(extraction_result, text)
+            logger.info(f"[DEBUG] 補完後の結果: {supplemented}")
+
+            return supplemented
+
+        except Exception as e:
+            logger.error(f"[ERROR] extract_dates_and_times エラー: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "error": "イベント情報を正しく認識できませんでした。\n\n・日時を打つと空き時間を返します\n・予定を打つとカレンダーに追加します\n\n例：\n『明日の午前9時から会議を追加して』\n『来週月曜日の14時から打ち合わせ』"
+            }
+
+    def _understand_intent(self, text):
+        """
+        第1段階：ユーザーの意図を理解
+        - availability_check（空き時間確認）
+        - add_event（予定追加）
+        - unknown（不明）
+        """
+        try:
+            now_jst = self._get_jst_now_str()
+
+            system_prompt = f"""あなたは予定管理アシスタントです。
+現在の日時（日本時間）: {now_jst}
+
+ユーザーのメッセージから意図を判定してください。
+
+【判定ルール】
+1. **空き時間確認（availability_check）**:
+   - 日時のみで予定内容がない
+   - 「空き時間」「空いてる」「予定ある？」などの表現
+   - 例: 「明日の空き時間」「来週月曜日は空いてる？」「7/10 9-10時」
+
+2. **予定追加（add_event）**:
+   - 日時＋予定内容（会議名、タイトル等）がある
+   - 「追加して」「入れて」「予定」などの表現
+   - 例: 「明日9時から会議」「7/10 10時 田中さんとMTG」
+
+3. **不明（unknown）**:
+   - 日時が含まれていない
+   - 判定できない曖昧な表現
+
+【出力形式】
+以下のJSON形式で返してください：
+{{
+  "intent": "availability_check" または "add_event" または "unknown",
+  "confidence": 0.0～1.0の数値,
+  "reason": "判定理由の簡潔な説明"
+}}
+
+【重要】
+- 日時のみで予定内容がない場合は必ず「availability_check」
+- 予定内容が明示されている場合のみ「add_event」
+- 迷った場合は「availability_check」を選択
+"""
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": text}
+                ],
+                temperature=0.1,
+                max_tokens=200
+            )
+
+            result = response.choices[0].message.content
+            logger.info(f"[DEBUG] 意図理解AI応答: {result}")
+
+            # JSONをパース
+            intent_data = self._parse_ai_response(result)
+
+            if not intent_data or 'intent' not in intent_data:
+                # パース失敗時はavailability_checkをデフォルトに
+                return {
+                    "intent": "availability_check",
+                    "confidence": 0.5,
+                    "reason": "パース失敗のためデフォルト"
+                }
+
+            return intent_data
+
+        except Exception as e:
+            logger.error(f"[ERROR] _understand_intent エラー: {e}")
+            # エラー時はavailability_checkをデフォルトに
+            return {
+                "intent": "availability_check",
+                "confidence": 0.5,
+                "reason": f"エラー発生: {str(e)}"
+            }
+
+    def _extract_dates_with_function_calling(self, text, intent):
+        """
+        第2段階：Function Callingを使用した日時抽出
+        より構造化された正確な出力を得る
+        """
+        try:
+            now_jst = self._get_jst_now_str()
+            task_type = intent.get('intent', 'availability_check')
+
+            # Function Callingの定義
+            functions = [
+                {
+                    "name": "extract_schedule_info",
+                    "description": "ユーザーのメッセージから日程・時間・予定情報を抽出する",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "task_type": {
+                                "type": "string",
+                                "enum": ["availability_check", "add_event"],
+                                "description": "タスクの種類（空き時間確認 or 予定追加）"
+                            },
+                            "dates": {
+                                "type": "array",
+                                "description": "抽出された日時情報のリスト",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "date": {
+                                            "type": "string",
+                                            "description": "日付（YYYY-MM-DD形式）"
+                                        },
+                                        "time": {
+                                            "type": "string",
+                                            "description": "開始時刻（HH:MM形式、24時間表記）"
+                                        },
+                                        "end_time": {
+                                            "type": "string",
+                                            "description": "終了時刻（HH:MM形式、24時間表記）"
+                                        },
+                                        "title": {
+                                            "type": "string",
+                                            "description": "予定のタイトル（add_eventの場合のみ）"
+                                        },
+                                        "description": {
+                                            "type": "string",
+                                            "description": "予定の詳細説明（任意）"
+                                        }
+                                    },
+                                    "required": ["date"]
+                                }
+                            },
+                            "location": {
+                                "type": "string",
+                                "description": "場所（東京、大阪など、指定されている場合のみ）"
+                            },
+                            "travel_time_minutes": {
+                                "type": "integer",
+                                "description": "移動時間（分単位、指定されている場合のみ）"
+                            }
+                        },
+                        "required": ["task_type", "dates"]
+                    }
+                }
+            ]
+
+            system_prompt = f"""あなたは予定とタスクを管理するAIアシスタントです。
+
+【現在の日時（日本時間）】
+{now_jst}
+
+【重要な指示】
+1. この日時を**絶対的な基準**として使用してください
+2. 「今日」「明日」「来週」などの相対的な表現を正確に変換してください
+3. 年月日は必ずYYYY-MM-DD形式で出力してください
+4. 時刻は必ずHH:MM形式（24時間表記）で出力してください
+
+【日付範囲の処理】
+- 「12/5-12/28」のような範囲表記は、開始日から終了日まで**全ての日付を個別に展開**してください
+- 例: 「12/5-12/10」→ 12/5, 12/6, 12/7, 12/8, 12/9, 12/10 の6件
+
+【週の処理】
+- 「今週」→ 今週の月曜日から日曜日まで7日間を展開
+- 「来週」→ 来週の月曜日から日曜日まで7日間を展開
+
+【時間範囲の処理】
+- 「9-10時」→ time: "09:00", end_time: "10:00"
+- 「18時以降」→ time: "18:00", end_time: "23:59"
+- 「終日」→ time: "00:00", end_time: "23:59"
+- 終了時刻が未指定の場合は開始時刻の1時間後に設定
+
+【複数時間帯の処理】
+- 「15:00-16:00 18:00-19:00」のように複数の時間帯がある場合は、別々のエントリとして抽出
+- 改行や箇条書き（・や-）で区切られた日時も全て抽出
+
+【最小連続空き時間】
+- 「2時間空いている」「3時間空いてる」という表現の「X時間」は時間範囲ではなく、条件です
+- この場合は時間範囲を指定せず、デフォルト（09:00-18:00）を使用してください
+
+【タスクタイプの判定】
+現在のタスクタイプ: {task_type}
+- availability_check: 日時のみ、予定内容なし
+- add_event: 日時＋予定内容あり
+
+【例】
+入力: 「明日と明後日の空き時間」
+→ task_type: "availability_check", dates: [{{date: "2025-XX-XX", time: "09:00", end_time: "18:00"}}, {{date: "2025-XX-XX", time: "09:00", end_time: "18:00"}}]
+
+入力: 「7/10 9-10時」
+→ task_type: "availability_check", dates: [{{date: "2025-07-10", time: "09:00", end_time: "10:00"}}]
+
+入力: 「明日10時から会議」
+→ task_type: "add_event", dates: [{{date: "2025-XX-XX", time: "10:00", end_time: "11:00", title: "会議"}}]
+
+入力: 「12/5-12/10の空き時間」
+→ task_type: "availability_check", dates: [{{date: "2025-12-05", ...}}, {{date: "2025-12-06", ...}}, ..., {{date: "2025-12-10", ...}}]
+"""
+
+            # Function Callingを使用
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": text}
+                ],
+                functions=functions,
+                function_call={"name": "extract_schedule_info"},
+                temperature=0.1
+            )
+
+            # Function Callingの結果を取得
+            message = response.choices[0].message
+
+            if message.function_call:
+                function_args = json.loads(message.function_call.arguments)
+                logger.info(f"[DEBUG] Function Calling結果: {function_args}")
+
+                # task_typeを意図理解の結果で上書き（より正確）
+                function_args['task_type'] = task_type
+
+                return function_args
+            else:
+                # Function Callが失敗した場合はフォールバック
+                logger.warning("[WARN] Function Callingが失敗、フォールバック処理")
+                return self._extract_dates_fallback(text, task_type)
+
+        except Exception as e:
+            logger.error(f"[ERROR] _extract_dates_with_function_calling エラー: {e}")
+            import traceback
+            traceback.print_exc()
+            # エラー時はフォールバック
+            return self._extract_dates_fallback(text, intent.get('intent', 'availability_check'))
+
+    def _extract_dates_fallback(self, text, task_type):
+        """
+        Function Calling失敗時のフォールバック処理
+        従来のGPT-3.5を使用した抽出方法
+        """
         try:
             now_jst = self._get_jst_now_str()
             system_prompt = (
@@ -50,86 +320,37 @@ class AIService:
                 "   - 例：「来週の空き時間」→ 来週月曜日〜日曜日の7日間の空き時間\n"
                 "5. 月が指定されていない場合（例：16日、17日）は今月として認識\n"
                 "6. 時間表現（午前9時、14時30分、9-10時、9時-10時、9:00-10:00など）を24時間形式に変換\n"
-                "7. **タスクの種類を判定（最重要）**:\n   - 日時のみ（タイトルや内容がない）場合は必ず「availability_check」（空き時間確認）\n   - 日時+タイトル/予定内容がある場合は「add_event」（予定追加）\n   - 例：「7/8 18時以降」→ availability_check（日時のみ）\n   - 例：「7/10 18:00〜20:00」→ availability_check（日時のみ）\n   - 例：「・7/10 9-10時\n・7/11 9-10時」→ availability_check（日時のみ複数）\n   - 例：「7/10 9-10時」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7/10 9時-10時」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7/10 9:00-10:00」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7月18日 11:00-14:00,15:00-17:00」→ availability_check（日時のみ複数）\n   - 例：「7月20日 13:00-0:00」→ availability_check（日時のみ）\n   - 例：「明日の午前9時から会議を追加して」→ add_event（日時+予定内容）\n   - 例：「来週月曜日の14時から打ち合わせ」→ add_event（日時+予定内容）\n   - 例：「田中さんとMTG」→ add_event（予定内容あり）\n   - 例：「会議を追加」→ add_event（予定内容あり）\n"
-                "8. 自然言語の時間表現は必ず具体的な時刻範囲・日付範囲に変換してください。\n"
-                "   例：'18時以降'→'18:00〜23:59'、'終日'→'00:00〜23:59'、'今日'→'現在時刻〜23:59'、'今日から1週間'→'今日〜7日後の23:59'。\n"
-                "   終了時間が指定されていない場合は1時間の予定として認識してください（例：'10時'→'10:00〜11:00'）。\n"
-                "   **重要：「X時間空いている日」「X時間空いてる日」という表現の「X時間」は時間範囲ではなく、最小連続空き時間の条件です。**\n"
-                "   「来週2時間空いている日」のような表現では、「2時間」を時間範囲（例：00:00-02:00）として抽出しないでください。\n"
-                "   時間範囲が指定されていない場合は、timeとend_timeフィールドを空欄にするか、デフォルトの範囲（09:00-18:00）を使用してください。\n"
-                "9. 箇条書き（・や-）、改行、スペース、句読点で区切られている場合も、すべての日時・時間帯を抽出してください。\n"
-                "   例：'・7/10 9-10時\n・7/11 9-10時' → 2件の予定として抽出\n"
-                "   例：'7/11 15:00〜16:00 18:00〜19:00' → 2件の予定として抽出\n"
-                "   例：'7/12 終日' → 1件の終日予定として抽出\n"
-                "10. 同じ日付の終日予定は1件だけ抽出してください。\n"
-                "11. 予定タイトル（description）も必ず抽出してください。\n"
-                "12. \"終日\"や\"00:00〜23:59\"の終日枠は、ユーザーが明示的に\"終日\"と書いた場合のみ抽出してください。\n"
-                "13. 1つの日付に複数の時間帯（枠）が指定されている場合は、必ずその枠ごとに抽出してください。\n"
-                "14. 同じ日に部分枠（例: 15:00〜16:00, 18:00〜19:00）がある場合は、その日付の終日枠（00:00〜23:59）は抽出しないでください。\n"
-                "15. 複数の日時・時間帯が入力される場合、全ての時間帯をリストにし、それぞれに対して開始時刻・終了時刻をISO形式（例: 2025-07-11T15:00:00+09:00）で出力してください。\n"
-                "16. 予定タイトル（会議名や打合せ名など）と、説明（議題や詳細、目的など）があれば両方抽出してください。\n"
-                "17. 説明はタイトル以降の文や\"の件\"\"について\"などを優先して抽出してください。\n"
-                "18. **日時のみの入力の場合は必ずavailability_checkとして判定してください。予定の内容や目的が明確に示されていない場合は空き時間確認として扱ってください。**\n"
-                "19. **場所情報（例：東京、大阪など）が入力されている場合は、locationフィールドに抽出してください。**\n"
-                "    - 例：「来月の東京での空き時間を教えて」→ location: '東京'\n"
-                "    - 例：「11月の大阪の空き時間」→ location: '大阪'\n"
-                "    - 例：「12/5-12/28東京での空き時間」→ location: '東京'、dates: 12/5から12/28までの全ての日付\n"
-                "20. **移動時間（例：移動時間は1時間、移動に1時間かかる）が入力されている場合は、travel_time_minutesフィールドに抽出してください。**\n"
-                "    - 例：「11月の空き時間を教えて。移動時間は1時間。」→ travel_time_minutes: 60\n"
-                "    - 例：「移動時間30分かかります」→ travel_time_minutes: 30\n"
+                "7. **タスクの種類を判定（最重要）**:\n   - 日時のみ（タイトルや内容がない）場合は必ず「availability_check」（空き時間確認）\n   - 日時+タイトル/予定内容がある場合は「add_event」（予定追加）\n"
+                f"8. 現在のタスクタイプ: {task_type}\n"
                 "\n"
                 "【出力例】\n"
                 "空き時間確認の場合:\n"
-                "{\n  \"task_type\": \"availability_check\",\n  \"dates\": [\n    {\n      \"date\": \"2025-07-08\",\n      \"time\": \"18:00\",\n      \"end_time\": \"23:59\"\n    }\n  ]\n}\n"
-                "\n"
-                "移動時間指定の空き時間確認の場合:\n"
-                "{\n  \"task_type\": \"availability_check\",\n  \"travel_time_minutes\": 60,\n  \"dates\": [\n    {\n      \"date\": \"2025-07-08\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    }\n  ]\n}\n"
-                "\n"
-                "来週の空き時間確認の場合:\n"
-                "{\n  \"task_type\": \"availability_check\",\n  \"dates\": [\n    {\n      \"date\": \"2025-01-20\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    },\n    {\n      \"date\": \"2025-01-21\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    },\n    {\n      \"date\": \"2025-01-22\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    },\n    {\n      \"date\": \"2025-01-23\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    },\n    {\n      \"date\": \"2025-01-24\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    },\n    {\n      \"date\": \"2025-01-25\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    },\n    {\n      \"date\": \"2025-01-26\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    }\n  ]\n}\n"
-                "\n"
-                "場所指定の空き時間確認の場合:\n"
-                "{\n  \"task_type\": \"availability_check\",\n  \"location\": \"東京\",\n  \"dates\": [\n    {\n      \"date\": \"2025-01-20\",\n      \"time\": \"09:00\",\n      \"end_time\": \"18:00\"\n    }\n  ]\n}\n"
-                "\n"
-                "予定追加の場合:\n"
-                "{\n  \"task_type\": \"add_event\",\n  \"dates\": [\n    {\n      \"date\": \"2025-07-14\",\n      \"time\": \"20:00\",\n      \"end_time\": \"21:00\",\n      \"title\": \"田中さんMTG\",\n      \"description\": \"新作アプリの件\"\n    }\n  ]\n}\n"
+                "{\"task_type\": \"availability_check\", \"dates\": [{\"date\": \"2025-07-08\", \"time\": \"18:00\", \"end_time\": \"23:59\"}]}\n"
             )
+
             response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model=self.fallback_model,
                 messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": text
-                    }
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": text}
                 ],
                 temperature=0.1
             )
+
             result = response.choices[0].message.content
-            logger.info(f"[DEBUG] AI生レスポンス: {result}")
+            logger.info(f"[DEBUG] フォールバックAI応答: {result}")
             parsed = self._parse_ai_response(result)
-            
-            # AIの判定結果を強制的に修正
-            if parsed and isinstance(parsed, dict) and 'dates' in parsed:
-                # 日時のみの場合は強制的にavailability_checkに変更
-                has_title_or_description = False
-                for date_info in parsed.get('dates', []):
-                    if date_info.get('title') or date_info.get('description'):
-                        has_title_or_description = True
-                        break
-                
-                if not has_title_or_description:
-                    logger.info(f"[DEBUG] 日時のみのため、task_typeをavailability_checkに強制変更")
-                    parsed['task_type'] = 'availability_check'
-            
-            return self._supplement_times(parsed, text)
-            
+
+            # task_typeを上書き
+            if parsed and isinstance(parsed, dict):
+                parsed['task_type'] = task_type
+
+            return parsed if parsed else {"error": "パース失敗"}
+
         except Exception as e:
-            return {"error": "イベント情報を正しく認識できませんでした。\n\n・日時を打つと空き時間を返します\n・予定を打つとカレンダーに追加します\n\n例：\n『明日の午前9時から会議を追加して』\n『来週月曜日の14時から打ち合わせ』"}
-    
+            logger.error(f"[ERROR] _extract_dates_fallback エラー: {e}")
+            return {"error": str(e)}
+
     def _parse_ai_response(self, response):
         """AIの応答をパースします"""
         try:
@@ -141,7 +362,7 @@ class AIService:
                 return {"error": "AI応答のパースに失敗しました"}
         except Exception as e:
             return {"error": f"JSONパースエラー: {str(e)}"}
-    
+
     def _supplement_times(self, parsed, original_text):
         from datetime import datetime, timedelta
         import re
@@ -154,14 +375,14 @@ class AIService:
         if not parsed or 'dates' not in parsed:
             print(f"[DEBUG] datesが存在しない: {parsed}")
             return parsed
-        
+
         # 元のテキストから日付範囲（例：12/5-12/28）を直接検出して展開
         # パターン: M/D-M/D または M月D日-M月D日
         date_range_patterns = [
             (r'(\d{1,2})/(\d{1,2})[/\-〜~](\d{1,2})/(\d{1,2})', True),  # 12/5-12/28
             (r'(\d{1,2})月(\d{1,2})日[/\-〜~](\d{1,2})月(\d{1,2})日', False),  # 12月5日-12月28日
         ]
-        
+
         for pattern, is_slash_format in date_range_patterns:
             match = re.search(pattern, original_text)
             if match:
@@ -179,17 +400,17 @@ class AIService:
                         start_day = int(match.group(2))
                         end_month = int(match.group(3))
                         end_day = int(match.group(4))
-                    
+
                     # 年を決定（現在の年、または来年）
                     current_year = now.year
                     start_date = datetime(current_year, start_month, start_day).date()
                     end_date = datetime(current_year, end_month, end_day).date()
-                    
+
                     # 開始日が過去の場合は来年
                     if start_date < now.date():
                         start_date = datetime(current_year + 1, start_month, start_day).date()
                         end_date = datetime(current_year + 1, end_month, end_day).date()
-                    
+
                     # 日付範囲を展開
                     print(f"[DEBUG] 日付範囲を展開: {start_date} から {end_date} まで")
                     expanded_dates = []
@@ -201,7 +422,7 @@ class AIService:
                             'end_time': '18:00'
                         })
                         current_date += timedelta(days=1)
-                    
+
                     # parsed['dates']を展開された日付で置き換え
                     if expanded_dates:
                         print(f"[DEBUG] 日付範囲を {len(expanded_dates)} 件に展開")
@@ -209,7 +430,7 @@ class AIService:
                         break
                 except Exception as e:
                     print(f"[DEBUG] 日付範囲の展開エラー: {e}")
-        
+
         allday_dates = set()
         new_dates = []
         # 1. AI抽出を最優先。time, end_timeが空欄のものだけ補完
@@ -219,7 +440,7 @@ class AIService:
         for d in parsed['dates']:
             print(f"[DEBUG] datesループ: {d}")
             phrase = d.get('description', '') or original_text
-            
+
             # 日付範囲（end_date）がある場合は展開
             if d.get('end_date'):
                 start_date_str = d.get('date')
@@ -245,7 +466,7 @@ class AIService:
                 except Exception as e:
                     print(f"[DEBUG] 日付範囲の展開エラー: {e}")
                     # エラーが発生した場合は元のエントリをそのまま使用
-            
+
             # 「今週」「来週」が含まれる場合は、時間範囲を無視して処理を続行（後で上書きされる）
             if (has_this_week or has_next_week) and d.get('time') and d.get('end_time'):
                 print(f"[DEBUG] 今週/来週が含まれるため、AIが抽出した時間範囲 {d.get('time')}-{d.get('end_time')} を無視")
@@ -329,13 +550,13 @@ class AIService:
                 this_monday = now + timedelta(days=days_until_monday)
                 # 日付のみを取得（時刻は0:00に、タイムゾーンは維持）
                 this_monday_date = this_monday.date()
-                
+
                 # 今週の7日間を生成
                 week_dates = []
                 for i in range(7):
                     week_date = this_monday_date + timedelta(days=i)
                     week_dates.append(week_date.strftime('%Y-%m-%d'))
-                
+
                 # 今週の各日付に対して空き時間確認のエントリを作成
                 # 「X時間空いている」という表現がある場合でも、時間範囲は09:00-18:00に設定
                 for week_date in week_dates:
@@ -347,7 +568,7 @@ class AIService:
                     if not any(existing.get('date') == week_date for existing in new_dates):
                         new_dates.append(week_entry)
                         print(f"[DEBUG] 今週の日付を追加: {week_date} (時間範囲: 09:00-18:00)")
-                
+
                 # 元のエントリは削除（今週の処理で置き換え）
                 continue
             # 来週
@@ -368,13 +589,13 @@ class AIService:
                     if days_until_next_monday == 0:
                         days_until_next_monday = 7
                 next_monday = now + timedelta(days=days_until_next_monday)
-                
+
                 # 来週の7日間を生成
                 week_dates = []
                 for i in range(7):
                     week_date = next_monday + timedelta(days=i)
                     week_dates.append(week_date.strftime('%Y-%m-%d'))
-                
+
                 # 来週の各日付に対して空き時間確認のエントリを作成
                 # 「X時間空いている」という表現がある場合でも、時間範囲は09:00-18:00に設定
                 for week_date in week_dates:
@@ -386,7 +607,7 @@ class AIService:
                     if not any(existing.get('date') == week_date for existing in new_dates):
                         new_dates.append(week_entry)
                         print(f"[DEBUG] 来週の日付を追加: {week_date} (時間範囲: 09:00-18:00)")
-                
+
                 # 元のエントリは削除（来週の処理で置き換え）
                 continue
             # 今日から1週間
@@ -491,7 +712,7 @@ class AIService:
                     new_date_entry['title'] = f"予定（{date_str} {start_time}〜{end_time}）"
                 new_dates.append(new_date_entry)
                 print(f"[DEBUG] pattern3で追加: {new_date_entry}")
-        
+
         # 月が指定されていない場合（例：16日11:30-14:00）の処理
         pattern4 = r'(\d{1,2})日\s*([0-9]{1,2}):?([0-9]{0,2})[\-〜~]([0-9]{1,2}):?([0-9]{0,2})'
         matches4 = re.findall(pattern4, original_text)
@@ -524,7 +745,7 @@ class AIService:
                     new_date_entry['title'] = f"予定（{date_str} {start_time}〜{end_time}）"
                 new_dates.append(new_date_entry)
                 print(f"[DEBUG] pattern4で追加（日のみ）: {new_date_entry}")
-        
+
         # 複数の時間帯が同じ日に指定されている場合（例：16日11:30-14:00/15:00-17:00）
         pattern5 = r'(\d{1,2})日\s*([0-9]{1,2}):?([0-9]{0,2})[\-〜~]([0-9]{1,2}):?([0-9]{0,2})/([0-9]{1,2}):?([0-9]{0,2})[\-〜~]([0-9]{1,2}):?([0-9]{0,2})'
         matches5 = re.findall(pattern5, original_text)
@@ -544,7 +765,7 @@ class AIService:
             except Exception:
                 continue
             date_str = dt.strftime('%Y-%m-%d')
-            
+
             # 1つ目の時間帯
             start_time1 = f"{int(sh1):02d}:{sm1 if sm1 else '00'}"
             end_time1 = f"{int(eh1):02d}:{em1 if em1 else '00'}"
@@ -559,7 +780,7 @@ class AIService:
                     new_date_entry1['title'] = f"予定（{date_str} {start_time1}〜{end_time1}）"
                 new_dates.append(new_date_entry1)
                 print(f"[DEBUG] pattern5で追加（1つ目）: {new_date_entry1}")
-            
+
             # 2つ目の時間帯
             start_time2 = f"{int(sh2):02d}:{sm2 if sm2 else '00'}"
             end_time2 = f"{int(eh2):02d}:{em2 if em2 else '00'}"
@@ -574,7 +795,7 @@ class AIService:
                     new_date_entry2['title'] = f"予定（{date_str} {start_time2}〜{end_time2}）"
                 new_dates.append(new_date_entry2)
                 print(f"[DEBUG] pattern5で追加（2つ目）: {new_date_entry2}")
-        
+
         # より柔軟な日付解析：改行やスペースで区切られた複数の日付に対応
         # 例：「16日11:30-14:00/15:00-17:00\n17日18:00-19:00\n18日9:00-10:00/16:00-16:30/17:30-18:00」
         lines = original_text.split('\n')
@@ -582,16 +803,16 @@ class AIService:
             line = line.strip()
             if not line:
                 continue
-                
+
             # 各行から日付を抽出
             day_match = re.search(r'(\d{1,2})日', line)
             if not day_match:
                 continue
-                
+
             day = int(day_match.group(1))
             year = now.year
             month = now.month
-            
+
             try:
                 dt = datetime(year, month, day)
                 # 過去の日付の場合は来月として扱う
@@ -602,18 +823,18 @@ class AIService:
                         dt = datetime(year, month+1, day)
             except Exception:
                 continue
-                
+
             date_str = dt.strftime('%Y-%m-%d')
-            
+
             # 時間帯を抽出（複数の時間帯に対応）
             time_pattern = r'([0-9]{1,2}):?([0-9]{0,2})[\-〜~]([0-9]{1,2}):?([0-9]{0,2})'
             time_matches = re.findall(time_pattern, line)
-            
+
             for time_match in time_matches:
                 sh, sm, eh, em = time_match
                 start_time = f"{int(sh):02d}:{sm if sm else '00'}"
                 end_time = f"{int(eh):02d}:{em if em else '00'}"
-                
+
                 if not any(d.get('date') == date_str and d.get('time') == start_time and d.get('end_time') == end_time for d in new_dates):
                     new_date_entry = {
                         'date': date_str,
@@ -625,20 +846,20 @@ class AIService:
                         new_date_entry['title'] = f"予定（{date_str} {start_time}〜{end_time}）"
                     new_dates.append(new_date_entry)
                     print(f"[DEBUG] 柔軟な日付解析で追加: {new_date_entry}")
-        
+
         # 本日/今日の処理を追加（AIが既に予定を作成していない場合のみ）
         if ('本日' in original_text or '今日' in original_text) and not new_dates:
             date_str = now.strftime('%Y-%m-%d')
-            
+
             # 時間の抽出
             time_pattern = r'(本日|今日)(\d{1,2})時'
             time_match = re.search(time_pattern, original_text)
-            
+
             if time_match:
                 hour = int(time_match.group(2))
                 start_time = f"{hour:02d}:00"
                 end_time = f"{hour+1:02d}:00"
-                
+
                 # タイトルを抽出
                 title_parts = original_text.split()
                 title = ""
@@ -649,12 +870,12 @@ class AIService:
                         if title:
                             title += " "
                         title += part
-                
+
                 if not title:
                     title = "予定"
-                
+
                 print(f"[DEBUG] 抽出されたタイトル: '{title}'")
-                
+
                 # メイン予定を作成
                 main_event = {
                     'date': date_str,
@@ -663,67 +884,67 @@ class AIService:
                     'title': title,
                     'description': ''
                 }
-                
+
                 new_dates.append(main_event)
                 print(f"[DEBUG] 本日/今日の予定を追加: {main_event}")
-        
+
         print(f"[DEBUG] new_dates(正規表現追加後): {new_dates}")
-        
+
         # 移動時間の自動追加処理（予定追加の場合のみ）
         if parsed.get('task_type') == 'add_event':
             new_dates = self._add_travel_time(new_dates, original_text)
         else:
             print(f"[DEBUG] 空き時間確認のため、移動時間の自動追加をスキップ")
-        
+
         parsed['dates'] = new_dates
         return parsed
-    
+
     def _add_travel_time(self, dates, original_text):
         """移動時間を自動追加する処理"""
         from datetime import datetime, timedelta
         import pytz
-        
+
         # 移動キーワードをチェック
         travel_keywords = ['移動', '移動あり', '移動時間', '移動必要']
         has_travel = any(keyword in original_text for keyword in travel_keywords)
-        
+
         print(f"[DEBUG] 移動時間チェック: original_text='{original_text}', has_travel={has_travel}")
         print(f"[DEBUG] 移動キーワード: {travel_keywords}")
-        
+
         if not has_travel:
             print(f"[DEBUG] 移動キーワードが見つからないため、移動時間を追加しません")
             return dates
-        
+
         print(f"[DEBUG] 移動時間の自動追加を開始")
-        
+
         jst = pytz.timezone('Asia/Tokyo')
         new_dates = []
-        
+
         for date_info in dates:
             # 元の予定を追加
             new_dates.append(date_info)
-            
+
             # 移動時間を追加するかチェック
             if self._should_add_travel_time(date_info, original_text):
                 travel_events = self._create_travel_events(date_info, jst)
-                
+
                 # 移動時間の重複チェック
                 for travel_event in travel_events:
                     is_duplicate = False
                     for existing_date in new_dates:
-                        if (existing_date.get('date') == travel_event.get('date') and 
-                            existing_date.get('time') == travel_event.get('time') and 
+                        if (existing_date.get('date') == travel_event.get('date') and
+                            existing_date.get('time') == travel_event.get('time') and
                             existing_date.get('end_time') == travel_event.get('end_time')):
                             is_duplicate = True
                             print(f"[DEBUG] 重複する移動時間をスキップ: {travel_event}")
                             break
-                    
+
                     if not is_duplicate:
                         new_dates.append(travel_event)
                         print(f"[DEBUG] 移動時間を追加: {travel_event}")
-        
+
         return new_dates
-    
+
     def _should_add_travel_time(self, date_info, original_text):
         """移動時間を追加すべきかチェック"""
         # 移動キーワードが含まれている場合のみ追加
@@ -731,25 +952,25 @@ class AIService:
         result = any(keyword in original_text for keyword in travel_keywords)
         print(f"[DEBUG] _should_add_travel_time: original_text='{original_text}', result={result}")
         return result
-    
+
     def _create_travel_events(self, main_event, jst):
         """移動時間の予定を作成"""
         from datetime import datetime, timedelta
-        
+
         print(f"[DEBUG] _create_travel_events開始: main_event={main_event}")
         travel_events = []
         date_str = main_event['date']
         start_time = main_event['time']
         end_time = main_event['end_time']
-        
+
         # 開始時間と終了時間をdatetimeオブジェクトに変換
         start_dt = jst.localize(datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M"))
         end_dt = jst.localize(datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M"))
-        
+
         # 移動前の予定（1時間前）
         travel_before_dt = start_dt - timedelta(hours=1)
         travel_before_end_dt = start_dt
-        
+
         travel_before_event = {
             'date': date_str,
             'time': travel_before_dt.strftime('%H:%M'),
@@ -758,11 +979,11 @@ class AIService:
             'description': '移動のための時間'
         }
         travel_events.append(travel_before_event)
-        
+
         # 移動後の予定（1時間後）
         travel_after_dt = end_dt
         travel_after_end_dt = end_dt + timedelta(hours=1)
-        
+
         travel_after_event = {
             'date': date_str,
             'time': travel_after_dt.strftime('%H:%M'),
@@ -771,10 +992,10 @@ class AIService:
             'description': '移動のための時間'
         }
         travel_events.append(travel_after_event)
-        
+
         print(f"[DEBUG] 作成された移動時間イベント: {travel_events}")
         return travel_events
-    
+
     def extract_event_info(self, text):
         """イベント追加用の情報を抽出します"""
         try:
@@ -797,7 +1018,7 @@ class AIService:
                 "{\n  \"title\": \"イベントタイトル\",\n  \"start_datetime\": \"2024-01-15T09:00:00\",\n  \"end_datetime\": \"2024-01-15T10:00:00\",\n  \"description\": \"説明（オプション）\"\n}\n"
             )
             response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model=self.model,
                 messages=[
                     {
                         "role": "system",
@@ -825,22 +1046,22 @@ class AIService:
             return parsed
         except Exception as e:
             return {"error": f"AI処理エラー: {str(e)}"}
-    
+
     def format_calendar_response(self, events_info):
         """カレンダー情報を読みやすい形式にフォーマットします"""
         if not events_info:
             return "📅 指定された日付に予定はありません。"
-        
+
         response = "📅 カレンダー情報\n\n"
-        
+
         for day_info in events_info:
             if 'error' in day_info:
                 response += f"❌ {day_info['date']}: {day_info['error']}\n\n"
                 continue
-            
+
             date = day_info['date']
             events = day_info['events']
-            
+
             if not events:
                 response += f"📅 {date}: 予定なし（空いています）\n\n"
             else:
@@ -850,9 +1071,9 @@ class AIService:
                     end_time = self._format_datetime(event['end'])
                     response += f"  • {event['title']} ({start_time} - {end_time})\n"
                 response += "\n"
-        
+
         return response
-    
+
     def _format_datetime(self, datetime_str):
         """日時文字列を読みやすい形式にフォーマットします"""
         try:
@@ -860,7 +1081,7 @@ class AIService:
             return dt.strftime('%m/%d %H:%M')
         except:
             return datetime_str
-    
+
     def format_event_confirmation(self, success, message, event_info):
         """
         イベント追加結果をフォーマットします
@@ -902,7 +1123,7 @@ class AIService:
                         time_str = f"{start_dt.strftime('%H:%M')} - {end_dt.strftime('%H:%M')}"
                         response += f"• {title} ({date_str} {time_str})\n"
         return response
-    
+
     def check_multiple_dates_availability(self, dates_info):
         """複数の日付の空き時間を確認するための情報を抽出します"""
         try:
@@ -918,7 +1139,7 @@ class AIService:
                 "{\n  \"dates\": [\n    {\n      \"date\": \"2024-01-15\",\n      \"time_range\": \"09:00-18:00\"\n    }\n  ]\n}\n"
             )
             response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model=self.model,
                 messages=[
                     {
                         "role": "system",
@@ -931,13 +1152,13 @@ class AIService:
                 ],
                 temperature=0.1
             )
-            
+
             result = response.choices[0].message.content
             return self._parse_ai_response(result)
-            
+
         except Exception as e:
             return {"error": f"AI処理エラー: {str(e)}"}
-    
+
     def format_free_slots_response(self, free_slots_by_date):
         """
         free_slots_by_date: { 'YYYY-MM-DD': [{'start': '10:00', 'end': '11:00'}, ...], ... }
@@ -957,7 +1178,7 @@ class AIService:
                 for slot in slots:
                     response += f"・{slot['start']}〜{slot['end']}\n"
         return response
-    
+
     def format_free_slots_response_by_frame(self, free_slots_by_frame, min_free_hours=None):
         """
         free_slots_by_frame: [
@@ -969,14 +1190,14 @@ class AIService:
         print(f"[DEBUG] format_free_slots_response_by_frame開始")
         print(f"[DEBUG] 入力データ: {free_slots_by_frame}")
         print(f"[DEBUG] min_free_hours: {min_free_hours}")
-        
+
         jst = pytz.timezone('Asia/Tokyo')
         if not free_slots_by_frame:
             print(f"[DEBUG] free_slots_by_frameが空")
             if min_free_hours:
                 return f"✅{min_free_hours}時間以上連続して空いている時間はありませんでした。"
             return "✅空き時間はありませんでした。"
-            
+
         # 日付ごとに空き時間をまとめる
         date_slots = {}
         for i, frame in enumerate(free_slots_by_frame):
@@ -984,15 +1205,15 @@ class AIService:
             date = frame['date']
             slots = frame['free_slots']
             print(f"[DEBUG] フレーム{i+1}の空き時間: {slots}")
-            
+
             if date not in date_slots:
                 date_slots[date] = set()
             for slot in slots:
                 date_slots[date].add((slot['start'], slot['end']))
                 print(f"[DEBUG] 日付{date}に空き時間追加: {slot['start']}〜{slot['end']}")
-                
+
         print(f"[DEBUG] 日付ごとの空き時間: {date_slots}")
-        
+
         if min_free_hours:
             response = f"✅{min_free_hours}時間以上連続して空いている時間です！\n\n"
         else:
@@ -1000,29 +1221,29 @@ class AIService:
         for date in sorted(date_slots.keys()):
             slots = sorted(list(date_slots[date]))
             print(f"[DEBUG] 日付{date}の最終空き時間: {slots}")
-            
+
             # 空き時間がない日付は表示しない
             if not slots:
                 continue
-                
+
             # 空き時間がある日付のみ表示
             dt = jst.localize(datetime.strptime(date, "%Y-%m-%d"))
             weekday = "月火水木金土日"[dt.weekday()]
             response += f"{dt.month}/{dt.day}（{weekday}）\n"
-            
+
             for start, end in slots:
                 response += f"・{start}〜{end}\n"
-                    
+
         # 全ての日付で空き時間がない場合
         if min_free_hours:
             expected_response_start = f"✅{min_free_hours}時間以上連続して空いている時間です！\n\n"
         else:
             expected_response_start = "✅以下が空き時間です！\n\n"
-        
+
         if response == expected_response_start:
             if min_free_hours:
                 return f"✅{min_free_hours}時間以上連続して空いている時間はありませんでした。"
             return "✅空き時間はありませんでした。"
-                    
+
         print(f"[DEBUG] 最終レスポンス: {response}")
-        return response 
+        return response
