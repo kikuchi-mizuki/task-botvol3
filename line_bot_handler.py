@@ -625,19 +625,51 @@ class LineBotHandler:
                 print(f"[DEBUG] dates_infoが空")
                 return TextSendMessage(text="日付を正しく認識できませんでした。\n\n例: 「明日7/7 15:00〜15:30の空き時間を教えて」")
             
-            # 夕食などのキーワードをチェック
+            # 文脈に応じた時間範囲の調整
+            # 夕食
             dinner_keywords = ['夕食', '夜食', 'ディナー', 'dinner', '夕飯', '夜ご飯', '晩ご飯', '夕ご飯']
             is_dinner_time = any(keyword in original_text for keyword in dinner_keywords)
-            
-            # 夕食の場合は時間範囲を18:00~22:00に調整
-            if is_dinner_time:
-                print(f"[DEBUG] 夕食キーワードを検出、時間範囲を18:00~22:00に調整")
-                for date_info in dates_info:
-                    # デフォルト時間（09:00-18:00）の場合のみ変更
-                    if date_info.get('time') == '09:00' and date_info.get('end_time') == '18:00':
+
+            # ランチ・昼食
+            lunch_keywords = ['ランチ', 'lunch', '昼食', '昼ご飯', 'お昼', 'ひるごはん']
+            is_lunch_time = any(keyword in original_text for keyword in lunch_keywords)
+
+            # 朝食・モーニング
+            breakfast_keywords = ['朝食', 'モーニング', 'morning', '朝ご飯', 'あさごはん', 'ブレックファスト', 'breakfast']
+            is_breakfast_time = any(keyword in original_text for keyword in breakfast_keywords)
+
+            # カフェ・お茶
+            cafe_keywords = ['カフェ', 'cafe', 'お茶', 'ティー', 'tea', 'コーヒー', 'coffee', '喫茶']
+            is_cafe_time = any(keyword in original_text for keyword in cafe_keywords)
+
+            # 午前・午後
+            is_morning = '午前' in original_text
+            is_afternoon = '午後' in original_text
+
+            # 時間範囲を調整
+            for date_info in dates_info:
+                # デフォルト時間（09:00-18:00）の場合のみ変更
+                if date_info.get('time') == '09:00' and date_info.get('end_time') == '18:00':
+                    if is_breakfast_time:
+                        date_info['time'] = '07:00'
+                        date_info['end_time'] = '10:00'
+                        print(f"[DEBUG] 朝食キーワードを検出、時間範囲を07:00~10:00に変更")
+                    elif is_lunch_time:
+                        date_info['time'] = '11:00'
+                        date_info['end_time'] = '14:00'
+                        print(f"[DEBUG] ランチキーワードを検出、時間範囲を11:00~14:00に変更")
+                    elif is_dinner_time:
                         date_info['time'] = '18:00'
                         date_info['end_time'] = '22:00'
-                        print(f"[DEBUG] 日付 {date_info.get('date')} の時間範囲を18:00~22:00に変更")
+                        print(f"[DEBUG] 夕食キーワードを検出、時間範囲を18:00~22:00に変更")
+                    elif is_morning:
+                        date_info['time'] = '09:00'
+                        date_info['end_time'] = '12:00'
+                        print(f"[DEBUG] 午前キーワードを検出、時間範囲を09:00~12:00に変更")
+                    elif is_afternoon:
+                        date_info['time'] = '13:00'
+                        date_info['end_time'] = '18:00'
+                        print(f"[DEBUG] 午後キーワードを検出、時間範囲を13:00~18:00に変更")
             
             # 最小連続空き時間を抽出（例：「2時間空いてる」「3時間空いている」）
             min_free_hours = None
@@ -670,6 +702,11 @@ class LineBotHandler:
             if min_free_hours is None and meeting_duration_hours is not None and not current_location:
                 min_free_hours = meeting_duration_hours
                 print(f"[DEBUG] meeting_duration_hoursを最小連続空き時間として使用: {min_free_hours}時間")
+
+            # カフェ・お茶の場合、最小連続空き時間が指定されていなければ1時間をデフォルトに
+            if min_free_hours is None and is_cafe_time:
+                min_free_hours = 1.0
+                print(f"[DEBUG] カフェ・お茶キーワードを検出、最小連続空き時間を1時間に設定")
 
             # 移動時間を考慮した必要時間を計算
             if current_location and location and meeting_duration_hours:
@@ -756,14 +793,10 @@ class LineBotHandler:
                             events = filtered_events
                             print(f"[DEBUG] 終日マーカーを除いた予定を使用: {len(events)}件")
                         
-                        # 夕食の場合は18:00〜22:00、それ以外は9:00〜18:00の間で空き時間を返す
-                        if is_dinner_time:
-                            day_start = "18:00"
-                            day_end = "22:00"
-                        else:
-                            day_start = "09:00"
-                            day_end = "18:00"
-                        
+                        # 文脈に応じた時間範囲を使用（既に上で調整済み）
+                        day_start = start_time
+                        day_end = end_time
+
                         # 日をまたぐ時間範囲の処理（例：22:00〜02:00）
                         # start_time と end_time をdatetimeオブジェクトに変換して比較
                         start_dt_temp = jst.localize(datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M"))
