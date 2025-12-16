@@ -665,6 +665,12 @@ class LineBotHandler:
                     min_free_hours = max(hours_list)
                     print(f"[DEBUG] 一般的な時間表現から最小連続空き時間を検出: {min_free_hours}時間")
 
+            # meeting_duration_hoursが指定されているが、current_locationがない場合は
+            # meeting_duration_hoursを最小連続空き時間として扱う
+            if min_free_hours is None and meeting_duration_hours is not None and not current_location:
+                min_free_hours = meeting_duration_hours
+                print(f"[DEBUG] meeting_duration_hoursを最小連続空き時間として使用: {min_free_hours}時間")
+
             # 移動時間を考慮した必要時間を計算
             if current_location and location and meeting_duration_hours:
                 from travel_time_service import TravelTimeService
