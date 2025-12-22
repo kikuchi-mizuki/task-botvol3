@@ -122,9 +122,15 @@ class AIService:
 3. 年月日は必ずYYYY-MM-DD形式で出力してください
 4. 時刻は必ずHH:MM形式（24時間表記）で出力してください
 
+【月の解釈ルール】
+- 月だけが指定された場合（例：「1月」「2月」）、その月が現在の月より過去であれば来年として解釈してください
+- 例: 現在が12月の場合、「1月」→ 来年の1月、「11月」→ 来年の11月
+- 例: 現在が3月の場合、「2月」→ 来年の2月、「4月」→ 今年の4月
+
 【日付範囲の処理】
 - 「12/5-12/28」のような範囲表記は、開始日から終了日まで**全ての日付を個別に展開**してください
 - 例: 「12/5-12/10」→ 12/5, 12/6, 12/7, 12/8, 12/9, 12/10 の6件
+- 日付範囲で月をまたぐ場合（例：「12/25-1/5」）は適切に年を判断してください
 
 【週の処理】
 - 「今週」→ 今週の月曜日から日曜日まで7日間を展開
@@ -168,6 +174,9 @@ class AIService:
 
 入力: 「来週2時間空いている日」
 → dates: [{{date: "2025-XX-XX", time: "09:00", end_time: "18:00"}}, ... (7日間)]
+
+入力: 「1月の空き時間」（現在が2025年12月の場合）
+→ dates: [{{date: "2026-01-01", time: "09:00", end_time: "18:00"}}, ... (1月の全日)]
 """
 
             # Function Callingを使用
@@ -225,8 +234,9 @@ class AIService:
                 "3. **日付範囲（例：12/5-12/28、1/10-1/20）は必ず開始日から終了日までの全ての日付を個別に抽出してください**\n"
                 "4. **「今週」「来週」という表現は必ず1週間分（7日間）の日付として抽出してください**\n"
                 "5. 月が指定されていない場合（例：16日、17日）は今月として認識\n"
-                "6. 時間表現（午前9時、14時30分、9-10時、9時-10時、9:00-10:00など）を24時間形式に変換\n"
-                "7. task_typeは常に「availability_check」\n"
+                "6. **月だけが指定された場合（例：「1月」「2月」）、その月が現在の月より過去であれば来年として解釈してください**\n"
+                "7. 時間表現（午前9時、14時30分、9-10時、9時-10時、9:00-10:00など）を24時間形式に変換\n"
+                "8. task_typeは常に「availability_check」\n"
                 "\n"
                 "【出力例】\n"
                 "{\"task_type\": \"availability_check\", \"dates\": [{\"date\": \"2025-07-08\", \"time\": \"09:00\", \"end_time\": \"18:00\"}]}\n"
@@ -496,6 +506,40 @@ class AIService:
             new_dates.append(d)
 
         print(f"[DEBUG] new_dates(AI+補完): {new_dates}")
+
+        # 月だけが指定された場合の処理（例：「1月の空き時間」）
+        month_only_pattern = r'(\d{1,2})月'
+        month_only_matches = re.findall(month_only_pattern, original_text)
+        if month_only_matches and not re.search(r'(\d{1,2})月(\d{1,2})日', original_text):
+            # 「X月Y日」の形式がない場合のみ、月だけの指定として扱う
+            for month_str in month_only_matches:
+                month = int(month_str)
+                year = now.year
+                start_day = 1
+
+                # 月が現在の月より小さい場合は来年とする
+                if month < now.month:
+                    year = now.year + 1
+                # 月が現在の月と同じ場合は、今年の現在日以降のみ
+                elif month == now.month:
+                    start_day = now.day
+
+                # その月の全日を展開
+                try:
+                    import calendar as cal
+                    _, last_day = cal.monthrange(year, month)
+                    for day in range(start_day, last_day + 1):
+                        date_str = f"{year}-{month:02d}-{day:02d}"
+                        if not any(d.get('date') == date_str for d in new_dates):
+                            new_dates.append({
+                                'date': date_str,
+                                'time': '09:00',
+                                'end_time': '18:00'
+                            })
+                            print(f"[DEBUG] 月だけ指定で日付を追加: {date_str}")
+                except Exception as e:
+                    print(f"[DEBUG] 月だけ指定の展開エラー: {e}")
+                break  # 最初の月だけを処理
 
         # 正規表現で漏れた枠を追加
         pattern1 = r'(\d{1,2})/(\d{1,2})[\s　]*([0-9]{1,2}):?([0-9]{0,2})[\-〜~]([0-9]{1,2}):?([0-9]{0,2})'
