@@ -277,6 +277,41 @@ class AIService:
         except Exception as e:
             return {"error": f"JSONパースエラー: {str(e)}"}
 
+    def _extract_time_range_from_text(self, text):
+        """
+        テキストから時間範囲を抽出する
+        Returns: (start_time, end_time) のタプル、見つからない場合は (None, None)
+        """
+        import re
+
+        # 様々な時間範囲パターンを試行（優先度順）
+        patterns = [
+            r'(\d{1,2}):(\d{2})[\s]*[\-〜~][\s]*(\d{1,2}):(\d{2})',  # 12:00-15:00, 12:00〜15:00
+            r'(\d{1,2})時(\d{2})分?[\s]*[\-〜~][\s]*(\d{1,2})時(\d{2})分?',  # 12時00分-15時00分
+            r'(\d{1,2}):(\d{2})[\s]*[\-〜~][\s]*(\d{1,2})',  # 12:00-15
+            r'(\d{1,2})時[\s]*[\-〜~][\s]*(\d{1,2})時',  # 9時〜17時
+            r'(\d{1,2})[\s]*[\-〜~][\s]*(\d{1,2})時',  # 12-15時
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                groups = match.groups()
+                if len(groups) == 4:
+                    start_hour, start_min, end_hour, end_min = groups
+                    return (f"{int(start_hour):02d}:{int(start_min):02d}",
+                            f"{int(end_hour):02d}:{int(end_min):02d}")
+                elif len(groups) == 3:
+                    start_hour, start_min, end_hour = groups
+                    return (f"{int(start_hour):02d}:{int(start_min):02d}",
+                            f"{int(end_hour):02d}:00")
+                elif len(groups) == 2:
+                    start_hour, end_hour = groups
+                    return (f"{int(start_hour):02d}:00",
+                            f"{int(end_hour):02d}:00")
+
+        return (None, None)
+
     def _supplement_times(self, parsed, original_text):
         from datetime import datetime, timedelta
         import re
@@ -507,11 +542,18 @@ class AIService:
 
         print(f"[DEBUG] new_dates(AI+補完): {new_dates}")
 
-        # 月だけが指定された場合の処理（例：「1月の空き時間」）
+        # 月だけが指定された場合の処理（例：「1月の空き時間」「2月 12:00〜15:00」）
         month_only_pattern = r'(\d{1,2})月'
         month_only_matches = re.findall(month_only_pattern, original_text)
         if month_only_matches and not re.search(r'(\d{1,2})月(\d{1,2})日', original_text):
             # 「X月Y日」の形式がない場合のみ、月だけの指定として扱う
+
+            # テキストから時間範囲を抽出（例：「2月 12:00〜15:00」）
+            extracted_start_time, extracted_end_time = self._extract_time_range_from_text(original_text)
+            default_start_time = extracted_start_time if extracted_start_time else '09:00'
+            default_end_time = extracted_end_time if extracted_end_time else '18:00'
+            print(f"[DEBUG] 月だけ指定時の時間範囲: {default_start_time} - {default_end_time}")
+
             for month_str in month_only_matches:
                 month = int(month_str)
                 year = now.year
@@ -533,10 +575,10 @@ class AIService:
                         if not any(d.get('date') == date_str for d in new_dates):
                             new_dates.append({
                                 'date': date_str,
-                                'time': '09:00',
-                                'end_time': '18:00'
+                                'time': default_start_time,
+                                'end_time': default_end_time
                             })
-                            print(f"[DEBUG] 月だけ指定で日付を追加: {date_str}")
+                            print(f"[DEBUG] 月だけ指定で日付を追加: {date_str} {default_start_time}-{default_end_time}")
                 except Exception as e:
                     print(f"[DEBUG] 月だけ指定の展開エラー: {e}")
                 break  # 最初の月だけを処理
