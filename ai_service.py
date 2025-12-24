@@ -566,13 +566,27 @@ class AIService:
                 elif month == now.month:
                     start_day = now.day
 
-                # その月の全日を展開
+                # その月の全日を展開（既存日付の時間範囲も更新）
                 try:
                     import calendar as cal
                     _, last_day = cal.monthrange(year, month)
                     for day in range(start_day, last_day + 1):
                         date_str = f"{year}-{month:02d}-{day:02d}"
-                        if not any(d.get('date') == date_str for d in new_dates):
+
+                        # 既に存在する日付を探す
+                        existing_date = None
+                        for d in new_dates:
+                            if d.get('date') == date_str:
+                                existing_date = d
+                                break
+
+                        if existing_date:
+                            # 既存の日付の時間範囲を更新
+                            existing_date['time'] = default_start_time
+                            existing_date['end_time'] = default_end_time
+                            print(f"[DEBUG] 月だけ指定で日付の時間範囲を更新: {date_str} {default_start_time}-{default_end_time}")
+                        else:
+                            # 新規追加
                             new_dates.append({
                                 'date': date_str,
                                 'time': default_start_time,
