@@ -272,22 +272,10 @@ class LineBotHandler:
             # AIを使ってメッセージの意図を判断
             ai_result = self.ai_service.extract_dates_and_times(user_message)
             print(f"[DEBUG] ai_result: {ai_result}")
-            
-            # 月のみ入力パターンをチェック
-            month_match = re.search(r'(\d{1,2})月', user_message.strip())
-            if month_match and not re.search(r'\d{1,2}日', user_message):
-                # 「明日」「明後日」「今日」など相対的な指定が含まれる場合は月全体処理をスキップ
-                relative_keywords = ['明日', '明後日', '今日', '本日']
-                if any(keyword in user_message for keyword in relative_keywords):
-                    pass
-                else:
-                    # 「11月」のような月のみ入力の場合、その月の全期間を展開
-                    month_num = int(month_match.group(1))
-                    if 1 <= month_num <= 12:
-                        location = ai_result.get('location', '')
-                        travel_time_minutes = ai_result.get('travel_time_minutes', None)
-                        return self._handle_month_availability(month_num, line_user_id, location=location, travel_time_minutes=travel_time_minutes, original_text=user_message)
-            
+
+            # 月のみ入力パターンのチェックを削除（AIが既に月全体を展開しているため不要）
+            # この処理がAIの結果を上書きしていた問題を修正
+
             if 'error' in ai_result:
                 # AI処理に失敗した場合、ガイダンスメッセージを返す
                 return TextSendMessage(text="📅 このボットは空き時間確認専用です！\n\n日時を送信すると空き時間を表示します。\n\n例：\n・「明日の空き時間」\n・「来週月曜日 9-18時」\n・「12/5-12/10の空き時間」\n・「来週2時間空いている日」")
