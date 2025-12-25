@@ -138,7 +138,8 @@ class AIService:
 
 【時間範囲の処理】
 - 「9-10時」→ time: "09:00", end_time: "10:00"
-- 「18時以降」→ time: "18:00", end_time: "23:59"
+- 「18時以降」→ time: "18:00", end_time: "22:00"
+- 「18時以前」→ time: "09:00", end_time: "18:00"
 - 「終日」→ time: "00:00", end_time: "23:59"
 - 時間指定がない場合は time: "09:00", end_time: "18:00"（デフォルト）
 - 終了時刻が未指定の場合は開始時刻の1時間後に設定
@@ -283,6 +284,19 @@ class AIService:
         Returns: (start_time, end_time) のタプル、見つからない場合は (None, None)
         """
         import re
+
+        # 「以降」「以前」パターンを優先的にチェック
+        # 18時以降 → 18:00-22:00
+        after_match = re.search(r'(\d{1,2})時以降', text)
+        if after_match:
+            hour = int(after_match.group(1))
+            return (f"{hour:02d}:00", "22:00")
+
+        # 18時以前 → 09:00-18:00
+        before_match = re.search(r'(\d{1,2})時以前', text)
+        if before_match:
+            hour = int(before_match.group(1))
+            return ("09:00", f"{hour:02d}:00")
 
         # 様々な時間範囲パターンを試行（優先度順）
         patterns = [
@@ -439,7 +453,7 @@ class AIService:
                 m = re.search(r'(\d{1,2})時以降', phrase)
                 if m:
                     d['time'] = f"{int(m.group(1)):02d}:00"
-                    d['end_time'] = '23:59'
+                    d['end_time'] = '22:00'
 
             # 終日
             if (not d.get('time') and not d.get('end_time')) or re.search(r'終日', phrase):
