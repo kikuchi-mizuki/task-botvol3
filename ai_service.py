@@ -488,12 +488,6 @@ class AIService:
                 except Exception as e:
                     print(f"[DEBUG] 日付範囲の展開エラー: {e}")
 
-            # 今週・来週が含まれる場合は、時間範囲を無視
-            if (has_this_week or has_next_week) and d.get('time') and d.get('end_time'):
-                print(f"[DEBUG] 今週/来週が含まれるため、AIが抽出した時間範囲を無視")
-                d['time'] = None
-                d['end_time'] = None
-
             # time, end_timeが両方セットされていればそのまま
             if d.get('time') and d.get('end_time'):
                 new_dates.append(d)
@@ -568,12 +562,12 @@ class AIService:
                 for week_date in week_dates:
                     week_entry = {
                         'date': week_date,
-                        'time': '09:00',
-                        'end_time': '18:00'
+                        'time': d.get('time', '08:00'),
+                        'end_time': d.get('end_time', '22:00')
                     }
                     if not any(existing.get('date') == week_date for existing in new_dates):
                         new_dates.append(week_entry)
-                        print(f"[DEBUG] 今週の日付を追加: {week_date}")
+                        print(f"[DEBUG] 今週の日付を追加: {week_date}, 時間: {week_entry['time']}-{week_entry['end_time']}")
                 continue
 
             # 来週
@@ -595,12 +589,12 @@ class AIService:
                 for week_date in week_dates:
                     week_entry = {
                         'date': week_date,
-                        'time': '09:00',
-                        'end_time': '18:00'
+                        'time': d.get('time', '08:00'),
+                        'end_time': d.get('end_time', '22:00')
                     }
                     if not any(existing.get('date') == week_date for existing in new_dates):
                         new_dates.append(week_entry)
-                        print(f"[DEBUG] 来週の日付を追加: {week_date}")
+                        print(f"[DEBUG] 来週の日付を追加: {week_date}, 時間: {week_entry['time']}-{week_entry['end_time']}")
                 continue
 
             # end_timeが空
