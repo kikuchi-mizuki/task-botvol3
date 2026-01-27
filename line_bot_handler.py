@@ -269,9 +269,16 @@ class LineBotHandler:
             if not self.ai_service:
                 return TextSendMessage(text="AIサービスの初期化に失敗しました。OpenAI APIキーを設定してください。")
             
-            # AIを使ってメッセージの意図を判断
-            ai_result = self.ai_service.extract_dates_and_times(user_message)
+            # 会話履歴を取得
+            conversation_history = self.db_helper.get_recent_conversations(line_user_id, limit=10)
+            print(f"[DEBUG] 会話履歴件数: {len(conversation_history)}")
+
+            # AIを使ってメッセージの意図を判断（会話履歴を渡す）
+            ai_result = self.ai_service.extract_dates_and_times(user_message, conversation_history)
             print(f"[DEBUG] ai_result: {ai_result}")
+
+            # ユーザーのメッセージを会話履歴に保存
+            self.db_helper.save_conversation(line_user_id, "user", user_message)
 
             # 月のみ入力パターンのチェックを削除（AIが既に月全体を展開しているため不要）
             # この処理がAIの結果を上書きしていた問題を修正
@@ -636,8 +643,8 @@ class LineBotHandler:
 
             # 時間範囲を調整
             for date_info in dates_info:
-                # デフォルト時間（09:00-18:00）の場合のみ変更
-                if date_info.get('time') == '09:00' and date_info.get('end_time') == '18:00':
+                # デフォルト時間（08:00-22:00）の場合のみ変更
+                if date_info.get('time') == '08:00' and date_info.get('end_time') == '22:00':
                     if is_breakfast_time:
                         date_info['time'] = '07:00'
                         date_info['end_time'] = '10:00'
@@ -907,7 +914,13 @@ class LineBotHandler:
             print(f"[DEBUG] format_free_slots_response_by_frame呼び出し")
             response_text = self.ai_service.format_free_slots_response_by_frame(free_slots_by_frame, min_free_hours=min_free_hours)
             print(f"[DEBUG] レスポンス生成完了: {response_text}")
-            
+
+            # ボットの応答を会話履歴に保存
+            self.db_helper.save_conversation(line_user_id, "assistant", response_text)
+
+            # 古い会話履歴を削除（最新50件を保持）
+            self.db_helper.clear_old_conversations(line_user_id, keep_recent=50)
+
             return TextSendMessage(text=response_text)
             
         except Exception as e:

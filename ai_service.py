@@ -28,14 +28,18 @@ class AIService:
         now = datetime.now(pytz.timezone('Asia/Tokyo'))
         return now.strftime('%Y-%m-%dT%H:%M:%S%z')
 
-    def extract_dates_and_times(self, text):
+    def extract_dates_and_times(self, text, conversation_history=None):
         """
         テキストから日時を抽出します（空き時間確認専用）
         Function Callingを使用して精度向上
+
+        Args:
+            text: ユーザーの入力テキスト
+            conversation_history: 会話履歴（形式: [{"role": "user"/"assistant", "content": "..."}]）
         """
         try:
             # 日時の詳細抽出（Function Calling使用）
-            extraction_result = self._extract_dates_with_function_calling(text)
+            extraction_result = self._extract_dates_with_function_calling(text, conversation_history)
             logger.info(f"[DEBUG] 日時抽出結果: {extraction_result}")
 
             if 'error' in extraction_result:
@@ -55,10 +59,14 @@ class AIService:
                 "error": "日時情報を正しく認識できませんでした。\n\n日時を入力すると空き時間を返します。\n\n例：\n『明日の空き時間』\n『来週月曜日 9-18時』\n『12/5-12/10の空き時間』"
             }
 
-    def _extract_dates_with_function_calling(self, text):
+    def _extract_dates_with_function_calling(self, text, conversation_history=None):
         """
         Function Callingを使用した日時抽出（空き時間確認専用）
         より構造化された正確な出力を得る
+
+        Args:
+            text: ユーザーの入力テキスト
+            conversation_history: 会話履歴（形式: [{"role": "user"/"assistant", "content": "..."}]）
         """
         try:
             now_jst = self._get_jst_now_str()
@@ -137,12 +145,26 @@ class AIService:
 - 「来週」→ 来週の月曜日から日曜日まで7日間を展開
 
 【時間範囲の処理】
+**明示的な時間指定がある場合:**
 - 「9-10時」→ time: "09:00", end_time: "10:00"
 - 「18時以降」→ time: "18:00", end_time: "22:00"
-- 「18時以前」→ time: "09:00", end_time: "18:00"
+- 「18時以前」→ time: "08:00", end_time: "18:00"
 - 「終日」→ time: "00:00", end_time: "23:59"
-- 時間指定がない場合は time: "09:00", end_time: "18:00"（デフォルト）
-- 終了時刻が未指定の場合は開始時刻の1時間後に設定
+
+**文脈から時間を推測する場合（キーワードや文脈から自然な時間帯を判断）:**
+- 「ランチ」「昼食」「お昼」「昼ご飯」などの表現 → time: "11:00", end_time: "14:00"
+- 「朝食」「モーニング」「朝ご飯」「朝」などの表現 → time: "07:00", end_time: "10:00"
+- 「夕食」「ディナー」「夜ご飯」「晩ご飯」などの表現 → time: "18:00", end_time: "22:00"
+- 「会食」→ 文脈から昼食なら11:00-14:00、夕食なら18:00-22:00
+- 「午前」→ time: "09:00", end_time: "12:00"
+- 「午後」→ time: "13:00", end_time: "18:00"
+- 「カフェ」「お茶」「コーヒー」→ 文脈から適切な時間帯（午後なら13:00-18:00）
+- 「飲み」「飲み会」「bar」→ time: "18:00", end_time: "22:00"
+
+**時間指定も文脈もない場合:**
+- time: "08:00", end_time: "22:00"（デフォルト）
+
+**重要**: ユーザーの自然な表現から意図を理解し、適切な時間帯を推測してください。キーワードを厳密にマッチさせる必要はありません。
 
 【複数時間帯の処理】
 - 「15:00-16:00 18:00-19:00」のように複数の時間帯がある場合は、別々のエントリとして抽出
@@ -150,7 +172,7 @@ class AIService:
 
 【最小連続空き時間】
 - 「2時間空いている」「3時間空いてる」という表現の「X時間」は時間範囲ではなく、条件です
-- この場合は時間範囲を指定せず、デフォルト（09:00-18:00）を使用してください
+- この場合は時間範囲を指定せず、デフォルト（08:00-22:00）を使用してください
 
 【場所による日付フィルタリング】
 - 「〇〇で会食できる日は？」「〇〇で予定を入れたい」のような表現の場合:
@@ -177,34 +199,51 @@ class AIService:
 
 【例】
 入力: 「明日と明後日の空き時間」
-→ dates: [{{date: "2025-XX-XX", time: "09:00", end_time: "18:00"}}, {{date: "2025-XX-XX", time: "09:00", end_time: "18:00"}}]
+→ dates: [{{date: "2025-XX-XX", time: "08:00", end_time: "22:00"}}, {{date: "2025-XX-XX", time: "08:00", end_time: "22:00"}}]
+
+入力: 「明日ランチできる？」
+→ dates: [{{date: "2025-XX-XX", time: "11:00", end_time: "14:00"}}]
+
+入力: 「来週モーニングで会える日は？」
+→ dates: [{{date: "2025-XX-XX", time: "07:00", end_time: "10:00"}}, ... (7日間)]
+
+入力: 「今週の夜ご飯空いてる？」
+→ dates: [{{date: "2025-XX-XX", time: "18:00", end_time: "22:00"}}, ... (7日間)]
 
 入力: 「7/10 9-10時」
 → dates: [{{date: "2025-07-10", time: "09:00", end_time: "10:00"}}]
 
 入力: 「12/5-12/10の空き時間」
-→ dates: [{{date: "2025-12-05", time: "09:00", end_time: "18:00"}}, {{date: "2025-12-06", ...}}, ..., {{date: "2025-12-10", ...}}]
+→ dates: [{{date: "2025-12-05", time: "08:00", end_time: "22:00"}}, {{date: "2025-12-06", ...}}, ..., {{date: "2025-12-10", ...}}]
 
 入力: 「来週2時間空いている日」
-→ dates: [{{date: "2025-XX-XX", time: "09:00", end_time: "18:00"}}, ... (7日間)]
+→ dates: [{{date: "2025-XX-XX", time: "08:00", end_time: "22:00"}}, ... (7日間)]
 
 入力: 「1月の空き時間」（現在が2025年12月の場合）
-→ dates: [{{date: "2026-01-01", time: "09:00", end_time: "18:00"}}, ... (1月の全日)]
+→ dates: [{{date: "2026-01-01", time: "08:00", end_time: "22:00"}}, ... (1月の全日)]
 
 入力: 「3月18時以降、東京で会食できる日は？」
 → dates: [{{date: "2025-03-01", time: "18:00", end_time: "22:00"}}, ... (3月の全日)], location: "東京"
 
 入力: 「来週大阪で空いている日は？」
-→ dates: [{{date: "2025-XX-XX", time: "09:00", end_time: "18:00"}}, ... (7日間)], location: "大阪"
+→ dates: [{{date: "2025-XX-XX", time: "08:00", end_time: "22:00"}}, ... (7日間)], location: "大阪"
 """
+
+            # メッセージリストを構築
+            messages = [{"role": "system", "content": system_prompt}]
+
+            # 会話履歴があれば追加（最新5件まで）
+            if conversation_history:
+                for msg in conversation_history[-5:]:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+
+            # 現在のユーザー入力を追加
+            messages.append({"role": "user", "content": text})
 
             # Function Callingを使用
             response = self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": text}
-                ],
+                messages=messages,
                 functions=functions,
                 function_call={"name": "extract_availability_check"},
                 temperature=0.1
@@ -310,11 +349,11 @@ class AIService:
             hour = int(after_match.group(1))
             return (f"{hour:02d}:00", "22:00")
 
-        # 18時以前 → 09:00-18:00
+        # 18時以前 → 08:00-18:00
         before_match = re.search(r'(\d{1,2})時以前', text)
         if before_match:
             hour = int(before_match.group(1))
-            return ("09:00", f"{hour:02d}:00")
+            return ("08:00", f"{hour:02d}:00")
 
         # 様々な時間範囲パターンを試行（優先度順）
         patterns = [
@@ -363,8 +402,8 @@ class AIService:
             today = now.strftime('%Y-%m-%d')
             parsed['dates'] = [{
                 'date': today,
-                'time': '09:00',
-                'end_time': '18:00'
+                'time': '08:00',
+                'end_time': '22:00'
             }]
             print(f"[DEBUG] デフォルト日付追加: {parsed['dates']}")
 
@@ -404,8 +443,8 @@ class AIService:
                     while current_date <= end_date:
                         expanded_dates.append({
                             'date': current_date.strftime('%Y-%m-%d'),
-                            'time': '09:00',
-                            'end_time': '18:00'
+                            'time': '08:00',
+                            'end_time': '22:00'
                         })
                         current_date += timedelta(days=1)
 
@@ -439,9 +478,9 @@ class AIService:
                         date_entry['date'] = current_date.strftime('%Y-%m-%d')
                         date_entry.pop('end_date', None)
                         if not date_entry.get('time'):
-                            date_entry['time'] = '09:00'
+                            date_entry['time'] = '08:00'
                         if not date_entry.get('end_time'):
-                            date_entry['end_time'] = '18:00'
+                            date_entry['end_time'] = '22:00'
                         new_dates.append(date_entry)
                         print(f"[DEBUG] 日付範囲から日付を追加: {current_date.strftime('%Y-%m-%d')}")
                         current_date += timedelta(days=1)
@@ -486,9 +525,9 @@ class AIService:
             if re.search(r'明日', phrase):
                 d['date'] = (now + timedelta(days=1)).strftime('%Y-%m-%d')
                 if not d.get('time'):
-                    d['time'] = '09:00'
+                    d['time'] = '08:00'
                 if not d.get('end_time'):
-                    d['end_time'] = '18:00'
+                    d['end_time'] = '22:00'
 
             # 今日
             if re.search(r'今日', phrase):
@@ -499,8 +538,8 @@ class AIService:
                     d['time'] = f"{hour:02d}:00"
                     d['end_time'] = f"{hour+1:02d}:00"
                 elif not d.get('time'):
-                    d['time'] = '09:00'
-                    d['end_time'] = '18:00'
+                    d['time'] = '08:00'
+                    d['end_time'] = '22:00'
 
             # 本日
             if re.search(r'本日', phrase):
@@ -511,8 +550,8 @@ class AIService:
                     d['time'] = f"{hour:02d}:00"
                     d['end_time'] = f"{hour+1:02d}:00"
                 elif not d.get('time'):
-                    d['time'] = '09:00'
-                    d['end_time'] = '18:00'
+                    d['time'] = '08:00'
+                    d['end_time'] = '22:00'
 
             # 今週
             if re.search(r'今週', phrase):
@@ -582,8 +621,8 @@ class AIService:
 
             # テキストから時間範囲を抽出（例：「2月 12:00〜15:00」）
             extracted_start_time, extracted_end_time = self._extract_time_range_from_text(original_text)
-            default_start_time = extracted_start_time if extracted_start_time else '09:00'
-            default_end_time = extracted_end_time if extracted_end_time else '18:00'
+            default_start_time = extracted_start_time if extracted_start_time else '08:00'
+            default_end_time = extracted_end_time if extracted_end_time else '22:00'
             print(f"[DEBUG] 月だけ指定時の時間範囲: {default_start_time} - {default_end_time}")
 
             for month_str in month_only_matches:
