@@ -988,3 +988,195 @@ class AIService:
 
         print(f"[DEBUG] 最終レスポンス: {response}")
         return response
+
+    def determine_intent(self, text, conversation_history=None):
+        """
+        ユーザーメッセージの意図を判断します
+
+        Args:
+            text: ユーザーの入力テキスト
+            conversation_history: 会話履歴
+
+        Returns:
+            dict: {
+                "needs_calendar": bool,  # スケジュール情報が必要かどうか
+                "intent_type": str,      # "schedule_query" / "greeting" / "confirmation" / "other"
+                "response_hint": str     # AIへのヒント
+            }
+        """
+        try:
+            now_jst = self._get_jst_now_str()
+
+            system_prompt = f"""あなたは意図判断AIです。ユーザーのメッセージを分析し、スケジュール情報が必要かどうかを判断してください。
+
+【現在の日時（日本時間）】
+{now_jst}
+
+【判断基準】
+以下の場合は needs_calendar = true:
+- 予定を確認したい（「今日の予定は？」「明日何がある？」）
+- 空き時間を探したい（「明日空いてる？」「来週ランチできる？」）
+- 特定の時間帯の予定を聞く（「午後の予定は？」「夜の予定ある？」）
+- スケジュールに関する質問全般
+
+以下の場合は needs_calendar = false:
+- 挨拶（「こんにちは」「おはよう」「ありがとう」）
+- 確認・同意（「はい」「わかった」「了解」）
+- 雑談・その他（スケジュールと無関係な内容）
+
+【intent_type】
+- "schedule_query": スケジュール関連の質問
+- "greeting": 挨拶
+- "confirmation": 確認・同意
+- "other": その他
+
+【response_hint】
+AIが応答する際のヒントを簡潔に記載してください。
+例: "今日の予定を教える" / "親しみを込めて挨拶に応える" / "了解の返事をする"
+"""
+
+            messages = [{"role": "system", "content": system_prompt}]
+
+            # 会話履歴があれば最新3件を追加
+            if conversation_history:
+                for msg in conversation_history[-3:]:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+
+            # 現在のユーザーメッセージ
+            messages.append({"role": "user", "content": text})
+
+            # Function Callingで意図判断
+            tools = [{
+                "type": "function",
+                "function": {
+                    "name": "determine_user_intent",
+                    "description": "ユーザーの意図を判断する",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "needs_calendar": {
+                                "type": "boolean",
+                                "description": "スケジュール情報が必要かどうか"
+                            },
+                            "intent_type": {
+                                "type": "string",
+                                "enum": ["schedule_query", "greeting", "confirmation", "other"],
+                                "description": "意図のタイプ"
+                            },
+                            "response_hint": {
+                                "type": "string",
+                                "description": "AIが応答する際のヒント"
+                            }
+                        },
+                        "required": ["needs_calendar", "intent_type", "response_hint"]
+                    }
+                }
+            }]
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=tools,
+                tool_choice={"type": "function", "function": {"name": "determine_user_intent"}}
+            )
+
+            # Function Callingの結果を取得
+            tool_call = response.choices[0].message.tool_calls[0]
+            result = json.loads(tool_call.function.arguments)
+
+            logger.info(f"[DEBUG] 意図判断結果: {result}")
+            return result
+
+        except Exception as e:
+            logger.error(f"[ERROR] determine_intent エラー: {e}")
+            import traceback
+            traceback.print_exc()
+            # エラー時はデフォルトでスケジュール取得を試みる
+            return {
+                "needs_calendar": True,
+                "intent_type": "schedule_query",
+                "response_hint": "スケジュール情報を提供する"
+            }
+
+    def chat_with_calendar_context(self, user_message, conversation_history=None, calendar_events=None):
+        """
+        カレンダー情報を含む文脈で自然な会話応答を生成します（秘書モード）
+
+        Args:
+            user_message: ユーザーの入力メッセージ
+            conversation_history: 会話履歴
+            calendar_events: カレンダーイベント情報（オプション）
+
+        Returns:
+            str: AI秘書の応答メッセージ
+        """
+        try:
+            now_jst = self._get_jst_now_str()
+            jst = pytz.timezone('Asia/Tokyo')
+            now_dt = datetime.now(jst)
+
+            # システムプロンプト
+            system_prompt = f"""あなたは親切で有能な秘書AIアシスタントです。ユーザーのスケジュール管理をサポートします。
+
+【現在の日時（日本時間）】
+{now_jst}
+{now_dt.strftime('%Y年%m月%d日 %H:%M (%A)')}
+
+【あなたの役割】
+- ユーザーのスケジュールを把握し、適切にアドバイスする秘書
+- 親しみやすく、自然な日本語で会話する
+- 必要に応じて絵文字を使い、温かみのある応答をする
+- 予定の確認や空き時間の提案を的確に行う
+
+【応答のスタイル】
+- 簡潔で分かりやすい（長すぎない）
+- 親しみやすいトーン（敬語は使うが堅苦しくない）
+- 具体的で実用的な情報を提供
+- ユーザーの状況に配慮した気の利いたコメントを添える
+
+【スケジュール情報の扱い】
+- 予定がある場合：時間、タイトル、場所などを分かりやすく伝える
+- 忙しい場合：「今日は予定が詰まっていますね」など配慮のコメント
+- 余裕がある場合：「比較的ゆとりのある一日ですね」など
+- 時間帯を考慮：朝なら「おはようございます」、夜なら「お疲れ様です」など
+
+【注意事項】
+- 絵文字は適度に使用（多用しない）
+- 予定がない場合は無理に情報を作らない
+- 不明な点は正直に伝える
+"""
+
+            messages = [{"role": "system", "content": system_prompt}]
+
+            # カレンダー情報があれば追加
+            if calendar_events:
+                calendar_info = "\n\n【現在のスケジュール情報】\n"
+                calendar_info += calendar_events
+                messages[0]["content"] += calendar_info
+
+            # 会話履歴を追加（最新10件）
+            if conversation_history:
+                for msg in conversation_history[-10:]:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+
+            # 現在のユーザーメッセージ
+            messages.append({"role": "user", "content": user_message})
+
+            # ChatGPT風の応答生成
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.7,  # やや創造的な応答
+                max_tokens=500
+            )
+
+            ai_response = response.choices[0].message.content
+            logger.info(f"[DEBUG] 秘書モード応答: {ai_response}")
+
+            return ai_response
+
+        except Exception as e:
+            logger.error(f"[ERROR] chat_with_calendar_context エラー: {e}")
+            import traceback
+            traceback.print_exc()
+            return "申し訳ございません。少し調子が悪いようです。もう一度お試しいただけますか？"

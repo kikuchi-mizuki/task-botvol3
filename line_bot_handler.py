@@ -265,67 +265,173 @@ class LineBotHandler:
             # 環境変数が設定されていない場合の処理
             if not Config.LINE_CHANNEL_ACCESS_TOKEN or not Config.LINE_CHANNEL_SECRET:
                 return TextSendMessage(text="LINE Botの設定が完了していません。環境変数を設定してください。")
-            
+
             if not self.ai_service:
                 return TextSendMessage(text="AIサービスの初期化に失敗しました。OpenAI APIキーを設定してください。")
-            
+
             # 会話履歴を取得
             conversation_history = self.db_helper.get_recent_conversations(line_user_id, limit=10)
             print(f"[DEBUG] 会話履歴件数: {len(conversation_history)}")
 
-            # AIを使ってメッセージの意図を判断（会話履歴を渡す）
-            ai_result = self.ai_service.extract_dates_and_times(user_message, conversation_history)
-            print(f"[DEBUG] ai_result: {ai_result}")
+            # === 新・秘書モード：意図判断から開始 ===
+            # まずユーザーの意図を判断
+            intent_result = self.ai_service.determine_intent(user_message, conversation_history)
+            print(f"[DEBUG] 意図判断結果: {intent_result}")
+
+            needs_calendar = intent_result.get('needs_calendar', True)
+            intent_type = intent_result.get('intent_type', 'schedule_query')
 
             # ユーザーのメッセージを会話履歴に保存
             self.db_helper.save_conversation(line_user_id, "user", user_message)
 
-            # 月のみ入力パターンのチェックを削除（AIが既に月全体を展開しているため不要）
-            # この処理がAIの結果を上書きしていた問題を修正
+            # スケジュール情報が必要な場合のみカレンダーを取得
+            calendar_events_text = None
 
-            if 'error' in ai_result:
-                # AI処理に失敗した場合、ガイダンスメッセージを返す
-                return TextSendMessage(text="📅 このボットは空き時間確認専用です！\n\n日時を送信すると空き時間を表示します。\n\n例：\n・「明日の空き時間」\n・「来週月曜日 9-18時」\n・「12/5-12/10の空き時間」\n・「来週2時間空いている日」")
-            
-            # タスクタイプに基づいて処理
-            task_type = ai_result.get('task_type', 'add_event')
-            
-            if task_type == 'availability_check':
-                print(f"[DEBUG] dates_info: {ai_result.get('dates', [])}")
-                location = ai_result.get('location', '')
-                current_location = ai_result.get('current_location', '')
-                meeting_duration_hours = ai_result.get('meeting_duration_hours', None)
-                travel_time_minutes = ai_result.get('travel_time_minutes', None)
-                print(f"[DEBUG] location: {location}")
-                print(f"[DEBUG] current_location: {current_location}")
-                print(f"[DEBUG] meeting_duration_hours: {meeting_duration_hours}")
-                print(f"[DEBUG] travel_time_minutes: {travel_time_minutes}")
-                return self._handle_availability_check(
-                    ai_result.get('dates', []),
-                    line_user_id,
-                    location=location,
-                    current_location=current_location,
-                    meeting_duration_hours=meeting_duration_hours,
-                    travel_time_minutes=travel_time_minutes,
-                    original_text=user_message
-                )
-            elif task_type == 'add_event':
-                # 予定追加時の重複確認ロジック（複数予定対応）
-                if not self.calendar_service:
-                    return TextSendMessage(text="カレンダーサービスが初期化されていません。")
-                
-                dates = ai_result.get('dates', [])
-                if not dates:
-                    return TextSendMessage(text="イベント情報を正しく認識できませんでした。\n\n例: 「明日の午前9時から会議を追加して」\n「来週月曜日の14時から打ち合わせ」")
-                
-                # 複数の予定を処理
-                return self._handle_multiple_events(dates, line_user_id)
-            else:
-                # 未対応コマンドの場合もガイダンスメッセージ
-                return TextSendMessage(text="📅 このボットは空き時間確認専用です！\n\n日時を送信すると空き時間を表示します。\n\n例：\n・「明日の空き時間」\n・「来週月曜日 9-18時」\n・「12/5-12/10の空き時間」\n・「来週2時間空いている日」")
+            if needs_calendar:
+                print(f"[DEBUG] スケジュール情報が必要 - 日時抽出を開始")
+
+                # 日時抽出（既存のロジック）
+                ai_result = self.ai_service.extract_dates_and_times(user_message, conversation_history)
+                print(f"[DEBUG] ai_result: {ai_result}")
+
+                if 'error' not in ai_result:
+                    task_type = ai_result.get('task_type', 'add_event')
+
+                    # タスクタイプに基づいて処理
+                    if task_type == 'availability_check':
+                        # 空き時間確認の場合 → スケジュール情報を取得して秘書モードで応答
+                        print(f"[DEBUG] dates_info: {ai_result.get('dates', [])}")
+                        location = ai_result.get('location', '')
+                        current_location = ai_result.get('current_location', '')
+                        meeting_duration_hours = ai_result.get('meeting_duration_hours', None)
+                        travel_time_minutes = ai_result.get('travel_time_minutes', None)
+
+                        # スケジュール情報を取得（秘書モードで使用）
+                        calendar_events_text = self._get_calendar_events_text(
+                            ai_result.get('dates', []),
+                            line_user_id,
+                            location=location,
+                            current_location=current_location,
+                            meeting_duration_hours=meeting_duration_hours,
+                            travel_time_minutes=travel_time_minutes
+                        )
+                        print(f"[DEBUG] カレンダー情報取得完了")
+
+                    elif task_type == 'add_event':
+                        # 予定追加の場合 → 既存の処理を維持
+                        if not self.calendar_service:
+                            return TextSendMessage(text="カレンダーサービスが初期化されていません。")
+
+                        dates = ai_result.get('dates', [])
+                        if not dates:
+                            return TextSendMessage(text="イベント情報を正しく認識できませんでした。\n\n例: 「明日の午前9時から会議を追加して」\n「来週月曜日の14時から打ち合わせ」")
+
+                        # 複数の予定を処理（既存の処理を継続）
+                        return self._handle_multiple_events(dates, line_user_id)
+
+            # === 秘書モードで応答生成 ===
+            print(f"[DEBUG] 秘書モードで応答生成開始")
+            ai_response = self.ai_service.chat_with_calendar_context(
+                user_message,
+                conversation_history,
+                calendar_events=calendar_events_text
+            )
+            print(f"[DEBUG] 秘書モード応答: {ai_response}")
+
+            # アシスタントの応答を会話履歴に保存
+            self.db_helper.save_conversation(line_user_id, "assistant", ai_response)
+
+            return TextSendMessage(text=ai_response)
+
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             return TextSendMessage(text=f"エラーが発生しました: {str(e)}")
-    
+
+    def _get_calendar_events_text(self, dates_info, line_user_id, location=None, current_location=None, meeting_duration_hours=None, travel_time_minutes=None):
+        """
+        日付情報からカレンダーイベントをテキスト形式で取得します（秘書モード用）
+
+        Args:
+            dates_info: 日付情報のリスト
+            line_user_id: LINEユーザーID
+            location: 場所フィルタ（オプション）
+            current_location: 現在地（オプション）
+            meeting_duration_hours: 打ち合わせ時間（オプション）
+            travel_time_minutes: 移動時間（オプション）
+
+        Returns:
+            str: カレンダー情報のテキスト
+        """
+        try:
+            if not dates_info or not self.calendar_service:
+                return None
+
+            jst = pytz.timezone('Asia/Tokyo')
+            events_text = ""
+
+            # 日付範囲を決定
+            dates_to_check = []
+            for date_info in dates_info:
+                date_str = date_info.get('date')
+                if date_str:
+                    dates_to_check.append(date_str)
+
+            if not dates_to_check:
+                return None
+
+            # 各日付の予定を取得
+            for date_str in sorted(set(dates_to_check)):
+                try:
+                    # その日の始まりから終わりまでの範囲を設定
+                    start_dt = jst.localize(datetime.strptime(f"{date_str} 00:00", "%Y-%m-%d %H:%M"))
+                    end_dt = jst.localize(datetime.strptime(f"{date_str} 23:59", "%Y-%m-%d %H:%M"))
+
+                    # イベントを取得
+                    events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
+
+                    # 日付のヘッダー
+                    dt = datetime.strptime(date_str, "%Y-%m-%d")
+                    weekday = "月火水木金土日"[dt.weekday()]
+                    events_text += f"\n{dt.month}/{dt.day}（{weekday}）:\n"
+
+                    if events:
+                        # イベントがある場合
+                        for event in events:
+                            title = event.get('title', '予定なし')
+                            start_time = event.get('start', '')
+                            end_time = event.get('end', '')
+                            is_all_day = event.get('is_all_day', False)
+
+                            if is_all_day:
+                                events_text += f"  - {title}（終日）\n"
+                            else:
+                                # 時間をフォーマット
+                                if 'T' in start_time:
+                                    from dateutil import parser
+                                    start_dt_event = parser.parse(start_time).astimezone(jst)
+                                    end_dt_event = parser.parse(end_time).astimezone(jst)
+                                    time_str = f"{start_dt_event.strftime('%H:%M')}〜{end_dt_event.strftime('%H:%M')}"
+                                else:
+                                    time_str = f"{start_time}〜{end_time}"
+
+                                events_text += f"  - {time_str} {title}\n"
+                    else:
+                        # イベントがない場合
+                        events_text += "  - 予定なし\n"
+
+                except Exception as e:
+                    print(f"[ERROR] 日付 {date_str} の処理中にエラー: {e}")
+                    continue
+
+            return events_text.strip() if events_text else None
+
+        except Exception as e:
+            print(f"[ERROR] _get_calendar_events_text エラー: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
     def _handle_multiple_events(self, dates, line_user_id):
         """複数の予定を処理します"""
         try:
