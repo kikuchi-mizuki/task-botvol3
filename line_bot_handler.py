@@ -392,34 +392,47 @@ class LineBotHandler:
                     weekday = "月火水木金土日"[dt.weekday()]
                     calendar_info += f"\n{dt.month}/{dt.day}（{weekday}）:\n"
 
-                    # 予定を表示
+                    # 終日予定と時間指定予定を分離
+                    all_day_events = []
                     non_all_day_events = []
+
                     if events:
-                        calendar_info += "【予定】\n"
                         for event in events:
+                            is_all_day = event.get('is_all_day', False)
+                            if is_all_day:
+                                all_day_events.append(event)
+                            else:
+                                non_all_day_events.append(event)
+
+                    # 場所情報（終日予定）を表示
+                    if all_day_events:
+                        calendar_info += "【場所】\n"
+                        for event in all_day_events:
+                            title = event.get('title', '場所なし')
+                            calendar_info += f"  {title}\n"
+
+                    # 時間指定の予定を表示
+                    if non_all_day_events:
+                        calendar_info += "【予定】\n"
+                        for event in non_all_day_events:
                             title = event.get('title', '予定なし')
                             start_time = event.get('start', '')
                             end_time_event = event.get('end', '')
-                            is_all_day = event.get('is_all_day', False)
 
-                            if is_all_day:
-                                calendar_info += f"  - {title}（終日）\n"
+                            # 時間をフォーマット
+                            if 'T' in start_time:
+                                from dateutil import parser
+                                start_dt_event = parser.parse(start_time).astimezone(jst)
+                                end_dt_event = parser.parse(end_time_event).astimezone(jst)
+                                time_str = f"{start_dt_event.strftime('%H:%M')}〜{end_dt_event.strftime('%H:%M')}"
                             else:
-                                non_all_day_events.append(event)
-                                # 時間をフォーマット
-                                if 'T' in start_time:
-                                    from dateutil import parser
-                                    start_dt_event = parser.parse(start_time).astimezone(jst)
-                                    end_dt_event = parser.parse(end_time_event).astimezone(jst)
-                                    time_str = f"{start_dt_event.strftime('%H:%M')}〜{end_dt_event.strftime('%H:%M')}"
-                                else:
-                                    time_str = f"{start_time}〜{end_time_event}"
+                                time_str = f"{start_time}〜{end_time_event}"
 
-                                calendar_info += f"  - {time_str} {title}\n"
+                            calendar_info += f"  - {time_str} {title}\n"
                     else:
                         calendar_info += "【予定】\n  - なし\n"
 
-                    # 空き時間を計算
+                    # 空き時間を計算（時間指定の予定のみを考慮）
                     free_slots = self.calendar_service.find_free_slots_for_day(start_dt, end_dt, non_all_day_events)
 
                     if free_slots:
