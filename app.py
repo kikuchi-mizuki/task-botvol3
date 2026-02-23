@@ -4,6 +4,10 @@ import base64
 import json
 import time
 import re
+import socket
+
+# グローバルソケットタイムアウトを設定（SSL/TCP層でのハング対策）
+socket.setdefaulttimeout(60)
 
 # ログレベルを環境変数で制御
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()

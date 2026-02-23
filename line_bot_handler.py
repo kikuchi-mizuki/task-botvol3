@@ -432,17 +432,27 @@ class LineBotHandler:
                         calendar_info += "【空き時間】\n  - なし\n"
 
                 except Exception as e:
-                    print(f"[ERROR] 日付 {date_str} の処理中にエラー: {e}")
+                    error_type = type(e).__name__
+                    print(f"[ERROR] 日付 {date_str} の処理中にエラー ({error_type}): {e}")
                     import traceback
                     traceback.print_exc()
+
+                    # タイムアウトエラーの場合は特別なメッセージを返す
+                    if 'timeout' in str(e).lower() or 'timed out' in str(e).lower():
+                        return "⚠️ Google Calendarへの接続がタイムアウトしました。しばらく待ってから再度お試しください。"
                     continue
 
             return calendar_info.strip() if calendar_info else None
 
         except Exception as e:
-            print(f"[ERROR] _get_calendar_events_text エラー: {e}")
+            error_type = type(e).__name__
+            print(f"[ERROR] _get_calendar_events_text エラー ({error_type}): {e}")
             import traceback
             traceback.print_exc()
+
+            # タイムアウトエラーの場合は特別なメッセージを返す
+            if 'timeout' in str(e).lower() or 'timed out' in str(e).lower() or error_type in ['TimeoutError', 'timeout']:
+                return "⚠️ Google Calendarへの接続がタイムアウトしました。ネットワークが不安定な可能性があります。しばらく待ってから再度お試しください。"
             return None
 
     def _handle_multiple_events(self, dates, line_user_id):

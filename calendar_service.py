@@ -12,6 +12,8 @@ from db import DBHelper
 import logging
 import httplib2
 from google_auth_httplib2 import AuthorizedHttp
+import socket
+import ssl
 
 logger = logging.getLogger("calendar_service")
 logger.setLevel(logging.INFO)
@@ -349,6 +351,7 @@ class GoogleCalendarService:
 
             while retry_count < max_retries:
                 try:
+                    print(f"[DEBUG] Google Calendar APIリクエスト試行{retry_count + 1}/{max_retries}")
                     events_result = service.events().list(
                         calendarId=Config.GOOGLE_CALENDAR_ID,  # 'primary'（各ユーザーのメインカレンダー）
                         timeMin=utc_start.isoformat(),
@@ -356,15 +359,19 @@ class GoogleCalendarService:
                         singleEvents=True,
                         orderBy='startTime'
                     ).execute()
+                    print(f"[DEBUG] Google Calendar APIリクエスト成功")
                     break  # 成功したらループを抜ける
-                except (httplib2.ServerNotFoundError, TimeoutError, OSError) as e:
+                except (httplib2.ServerNotFoundError, socket.timeout, socket.error, ssl.SSLError, TimeoutError, OSError, ConnectionError) as e:
                     retry_count += 1
-                    print(f"[WARNING] Google Calendar APIリクエスト失敗（試行{retry_count}/{max_retries}）: {e}")
+                    error_type = type(e).__name__
+                    print(f"[WARNING] Google Calendar APIリクエスト失敗（試行{retry_count}/{max_retries}）: {error_type} - {e}")
                     if retry_count >= max_retries:
                         print(f"[ERROR] Google Calendar APIリクエストが最大リトライ回数を超えました")
-                        raise
+                        raise Exception(f"Google Calendar APIリクエストが{max_retries}回失敗しました: {error_type} - {e}")
                     import time
-                    time.sleep(1)  # 1秒待機してリトライ
+                    wait_time = retry_count * 2  # 指数バックオフ: 2秒、4秒
+                    print(f"[INFO] {wait_time}秒待機してリトライします...")
+                    time.sleep(wait_time)
 
             if events_result is None:
                 raise Exception("Google Calendar APIリクエストに失敗しました")
