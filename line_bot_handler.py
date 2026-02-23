@@ -350,7 +350,7 @@ class LineBotHandler:
 
     def _get_calendar_events_text(self, dates_info, line_user_id, location=None, current_location=None, meeting_duration_hours=None, travel_time_minutes=None):
         """
-        日付情報からカレンダーイベントをテキスト形式で取得します（秘書モード用）
+        日付情報からカレンダーイベントと空き時間をテキスト形式で取得します（秘書モード用）
 
         Args:
             dates_info: 日付情報のリスト
@@ -361,31 +361,28 @@ class LineBotHandler:
             travel_time_minutes: 移動時間（オプション）
 
         Returns:
-            str: カレンダー情報のテキスト
+            str: カレンダー情報のテキスト（予定と空き時間を含む）
         """
         try:
             if not dates_info or not self.calendar_service:
                 return None
 
             jst = pytz.timezone('Asia/Tokyo')
-            events_text = ""
+            calendar_info = ""
 
-            # 日付範囲を決定
-            dates_to_check = []
+            # 各日付情報について処理
             for date_info in dates_info:
-                date_str = date_info.get('date')
-                if date_str:
-                    dates_to_check.append(date_str)
-
-            if not dates_to_check:
-                return None
-
-            # 各日付の予定を取得
-            for date_str in sorted(set(dates_to_check)):
                 try:
-                    # その日の始まりから終わりまでの範囲を設定
-                    start_dt = jst.localize(datetime.strptime(f"{date_str} 00:00", "%Y-%m-%d %H:%M"))
-                    end_dt = jst.localize(datetime.strptime(f"{date_str} 23:59", "%Y-%m-%d %H:%M"))
+                    date_str = date_info.get('date')
+                    time_start = date_info.get('time', '08:00')
+                    time_end = date_info.get('end_time', '22:00')
+
+                    if not date_str:
+                        continue
+
+                    # その日の指定時間範囲でイベントと空き時間を取得
+                    start_dt = jst.localize(datetime.strptime(f"{date_str} {time_start}", "%Y-%m-%d %H:%M"))
+                    end_dt = jst.localize(datetime.strptime(f"{date_str} {time_end}", "%Y-%m-%d %H:%M"))
 
                     # イベントを取得
                     events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
@@ -393,38 +390,54 @@ class LineBotHandler:
                     # 日付のヘッダー
                     dt = datetime.strptime(date_str, "%Y-%m-%d")
                     weekday = "月火水木金土日"[dt.weekday()]
-                    events_text += f"\n{dt.month}/{dt.day}（{weekday}）:\n"
+                    calendar_info += f"\n{dt.month}/{dt.day}（{weekday}）:\n"
 
+                    # 予定を表示
+                    non_all_day_events = []
                     if events:
-                        # イベントがある場合
+                        calendar_info += "【予定】\n"
                         for event in events:
                             title = event.get('title', '予定なし')
                             start_time = event.get('start', '')
-                            end_time = event.get('end', '')
+                            end_time_event = event.get('end', '')
                             is_all_day = event.get('is_all_day', False)
 
                             if is_all_day:
-                                events_text += f"  - {title}（終日）\n"
+                                calendar_info += f"  - {title}（終日）\n"
                             else:
+                                non_all_day_events.append(event)
                                 # 時間をフォーマット
                                 if 'T' in start_time:
                                     from dateutil import parser
                                     start_dt_event = parser.parse(start_time).astimezone(jst)
-                                    end_dt_event = parser.parse(end_time).astimezone(jst)
+                                    end_dt_event = parser.parse(end_time_event).astimezone(jst)
                                     time_str = f"{start_dt_event.strftime('%H:%M')}〜{end_dt_event.strftime('%H:%M')}"
                                 else:
-                                    time_str = f"{start_time}〜{end_time}"
+                                    time_str = f"{start_time}〜{end_time_event}"
 
-                                events_text += f"  - {time_str} {title}\n"
+                                calendar_info += f"  - {time_str} {title}\n"
                     else:
-                        # イベントがない場合
-                        events_text += "  - 予定なし\n"
+                        calendar_info += "【予定】\n  - なし\n"
+
+                    # 空き時間を計算
+                    free_slots = self.calendar_service.find_free_slots_for_day(start_dt, end_dt, non_all_day_events)
+
+                    if free_slots:
+                        calendar_info += "【空き時間】\n"
+                        for slot in free_slots:
+                            slot_start = slot['start']
+                            slot_end = slot['end']
+                            calendar_info += f"  - {slot_start}〜{slot_end}\n"
+                    else:
+                        calendar_info += "【空き時間】\n  - なし\n"
 
                 except Exception as e:
                     print(f"[ERROR] 日付 {date_str} の処理中にエラー: {e}")
+                    import traceback
+                    traceback.print_exc()
                     continue
 
-            return events_text.strip() if events_text else None
+            return calendar_info.strip() if calendar_info else None
 
         except Exception as e:
             print(f"[ERROR] _get_calendar_events_text エラー: {e}")
