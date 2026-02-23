@@ -10,6 +10,8 @@ from config import Config
 from dateutil import parser
 from db import DBHelper
 import logging
+import httplib2
+from google_auth_httplib2 import AuthorizedHttp
 
 logger = logging.getLogger("calendar_service")
 logger.setLevel(logging.INFO)
@@ -28,7 +30,7 @@ class GoogleCalendarService:
         self._authenticate()
     
     def _authenticate(self):
-        """Google Calendar APIの認証を行います"""
+        """Google Calendar APIの認証を行います（タイムアウト設定付き）"""
         # トークンファイルが存在する場合は読み込み
         if os.path.exists('token.pickle'):
             with open('token.pickle', 'rb') as token:
@@ -38,9 +40,12 @@ class GoogleCalendarService:
                 self.creds.refresh(Request())
         else:
             self.creds = None
-        
+
         if self.creds:
-            self.service = build('calendar', 'v3', credentials=self.creds)
+            # HTTPタイムアウトを設定（60秒）
+            http = httplib2.Http(timeout=60)
+            authorized_http = AuthorizedHttp(self.creds, http=http)
+            self.service = build('calendar', 'v3', http=authorized_http)
         else:
             self.service = None  # 認証情報がなければserviceはNoneのまま
     
@@ -137,21 +142,26 @@ class GoogleCalendarService:
             return None
     
     def _get_calendar_service(self, line_user_id):
-        """ユーザーごとのGoogle Calendarサービスを取得"""
+        """ユーザーごとのGoogle Calendarサービスを取得（タイムアウト設定付き）"""
         try:
             print(f"[DEBUG] _get_calendar_service開始: line_user_id={line_user_id}")
             credentials = self._get_user_credentials(line_user_id)
             print(f"[DEBUG] 認証情報取得結果: credentials={credentials is not None}")
-            
+
             if not credentials:
                 print(f"[DEBUG] 認証情報が取得できませんでした")
                 raise Exception("ユーザーの認証トークンが見つかりません。認証を完了してください。")
-            
+
             print(f"[DEBUG] Google Calendar APIサービス構築開始")
-            service = build('calendar', 'v3', credentials=credentials)
-            print(f"[DEBUG] Google Calendar APIサービス構築完了")
+
+            # HTTPタイムアウトを設定（60秒）
+            http = httplib2.Http(timeout=60)
+            authorized_http = AuthorizedHttp(credentials, http=http)
+
+            service = build('calendar', 'v3', http=authorized_http)
+            print(f"[DEBUG] Google Calendar APIサービス構築完了（タイムアウト: 60秒）")
             return service
-            
+
         except Exception as e:
             print(f"[DEBUG] _get_calendar_serviceで例外発生: {e}")
             import traceback
@@ -331,14 +341,33 @@ class GoogleCalendarService:
             
             print(f"[DEBUG] UTC変換後: utc_start={utc_start}, utc_end={utc_end}")
             print(f"[DEBUG] Google Calendar APIリクエスト: calendarId={Config.GOOGLE_CALENDAR_ID}, timeMin={utc_start.isoformat()}, timeMax={utc_end.isoformat()}")
-            
-            events_result = service.events().list(
-                calendarId=Config.GOOGLE_CALENDAR_ID,  # 'primary'（各ユーザーのメインカレンダー）
-                timeMin=utc_start.isoformat(),
-                timeMax=utc_end.isoformat(),
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
+
+            # リトライロジック（最大3回）
+            max_retries = 3
+            retry_count = 0
+            events_result = None
+
+            while retry_count < max_retries:
+                try:
+                    events_result = service.events().list(
+                        calendarId=Config.GOOGLE_CALENDAR_ID,  # 'primary'（各ユーザーのメインカレンダー）
+                        timeMin=utc_start.isoformat(),
+                        timeMax=utc_end.isoformat(),
+                        singleEvents=True,
+                        orderBy='startTime'
+                    ).execute()
+                    break  # 成功したらループを抜ける
+                except (httplib2.ServerNotFoundError, TimeoutError, OSError) as e:
+                    retry_count += 1
+                    print(f"[WARNING] Google Calendar APIリクエスト失敗（試行{retry_count}/{max_retries}）: {e}")
+                    if retry_count >= max_retries:
+                        print(f"[ERROR] Google Calendar APIリクエストが最大リトライ回数を超えました")
+                        raise
+                    import time
+                    time.sleep(1)  # 1秒待機してリトライ
+
+            if events_result is None:
+                raise Exception("Google Calendar APIリクエストに失敗しました")
             
             print(f"[DEBUG] Google Calendar APIレスポンス: {events_result}")
             
