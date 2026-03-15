@@ -18,7 +18,12 @@ if not logger.hasHandlers():
 
 class AIService:
     def __init__(self):
-        self.client = openai.OpenAI(api_key=Config.OPENAI_API_KEY)
+        # タイムアウトを60秒に設定（接続15秒、読み取り45秒）
+        self.client = openai.OpenAI(
+            api_key=Config.OPENAI_API_KEY,
+            timeout=60.0,  # 全体タイムアウト
+            max_retries=3  # リトライ回数
+        )
         # GPT-4を使用（より高精度）
         self.model = "gpt-4-turbo-preview"
         # フォールバック用にGPT-3.5も用意
