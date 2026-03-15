@@ -101,6 +101,10 @@ class AIService:
                                         "end_time": {
                                             "type": "string",
                                             "description": "終了時刻（HH:MM形式、24時間表記）"
+                                        },
+                                        "title": {
+                                            "type": "string",
+                                            "description": "予定のタイトル（例：会議、打ち合わせ、仮の予定など）"
                                         }
                                     },
                                     "required": ["date"]
@@ -201,6 +205,13 @@ class AIService:
 - この情報は移動時間の計算に使用されます
 - **重要**: current_locationとmeeting_duration_hoursが両方指定されている場合のみ移動時間計算を行います
   - 場所フィルタのみの場合はlocationのみを指定し、current_locationとmeeting_duration_hoursは指定しないでください
+
+【タイトルの抽出】
+- ユーザーが予定のタイトルを指定している場合は、それを抽出してください
+- 例: 「4/3 18-19時 仮の予定」→ title: "仮の予定"
+- 例: 「明日9時から会議」→ title: "会議"
+- 例: 「来週月曜日14時から打ち合わせ」→ title: "打ち合わせ"
+- タイトルが不明な場合は空文字列にしてください
 
 【例】
 入力: 「明日と明後日の空き時間」
@@ -1022,6 +1033,7 @@ class AIService:
 - 予定を確認したい（「今日の予定は？」「明日何がある？」）
 - 空き時間を探したい（「明日空いてる？」「来週ランチできる？」）
 - 特定の時間帯の予定を聞く（「午後の予定は？」「夜の予定ある？」）
+- 予定を追加したい（「4/3 18-19時 仮の予定」「明日9時から会議」）
 - スケジュールに関する質問全般
 
 以下の場合は needs_calendar = false:
@@ -1030,7 +1042,11 @@ class AIService:
 - 雑談・その他（スケジュールと無関係な内容）
 
 【intent_type】
-- "schedule_query": スケジュール関連の質問
+- "schedule_query": スケジュール照会（空き時間確認、予定確認など）
+  * キーワード: 「空いてる」「予定は？」「確認」など
+- "add_event": 予定追加・登録
+  * キーワード: 「追加」「入れて」「登録」「〜する」「〜の予定」
+  * 日時+タイトルが含まれる場合（例: 「4/3 18-19時 仮の予定」）
 - "greeting": 挨拶
 - "confirmation": 確認・同意
 - "other": その他
@@ -1065,7 +1081,7 @@ AIが応答する際のヒントを簡潔に記載してください。
                             },
                             "intent_type": {
                                 "type": "string",
-                                "enum": ["schedule_query", "greeting", "confirmation", "other"],
+                                "enum": ["schedule_query", "add_event", "greeting", "confirmation", "other"],
                                 "description": "意図のタイプ"
                             },
                             "response_hint": {

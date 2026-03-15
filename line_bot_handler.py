@@ -301,6 +301,19 @@ class LineBotHandler:
             # ユーザーのメッセージを会話履歴に保存
             self.db_helper.save_conversation(line_user_id, "user", user_message)
 
+            # 予定追加の場合は専用処理を実行
+            if intent_type == 'add_event':
+                print(f"[DEBUG] 予定追加として処理")
+                # 日時抽出
+                ai_result = self.ai_service.extract_dates_and_times(user_message, conversation_history)
+                print(f"[DEBUG] ai_result: {ai_result}")
+
+                if 'error' not in ai_result:
+                    dates = ai_result.get('dates', [])
+                    if dates:
+                        # 複数の予定を処理
+                        return self._handle_multiple_events(dates, line_user_id)
+
             # スケジュール情報が必要な場合のみカレンダーを取得
             calendar_events_text = None
 
