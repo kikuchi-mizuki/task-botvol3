@@ -28,7 +28,19 @@ class LineBotHandler:
         import requests
         from requests.adapters import HTTPAdapter
         from urllib3.util.retry import Retry
-        
+
+        # タイムアウト付きHTTPAdapterを作成
+        class TimeoutHTTPAdapter(HTTPAdapter):
+            def __init__(self, timeout=None, *args, **kwargs):
+                self.timeout = timeout
+                super().__init__(*args, **kwargs)
+
+            def send(self, request, **kwargs):
+                # デフォルトタイムアウトを設定（上書き可能）
+                if self.timeout is not None and 'timeout' not in kwargs:
+                    kwargs['timeout'] = self.timeout
+                return super().send(request, **kwargs)
+
         # リトライ戦略を設定（より詳細な設定）
         retry_strategy = Retry(
             total=5,  # 最大リトライ回数を増加
@@ -37,16 +49,20 @@ class LineBotHandler:
             allowed_methods=["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"],  # 全HTTPメソッドでリトライ
             raise_on_status=False,  # ステータスエラーで例外を発生させない
         )
-        
-        # アダプターを設定
-        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=10, pool_maxsize=20)
-        
+
+        # タイムアウト付きアダプターを設定（接続15秒、読み取り45秒）
+        adapter = TimeoutHTTPAdapter(
+            timeout=(15, 45),
+            max_retries=retry_strategy,
+            pool_connections=10,
+            pool_maxsize=20
+        )
+
         # グローバルセッション設定
         session = requests.Session()
         session.mount("http://", adapter)
         session.mount("https://", adapter)
-        session.timeout = (15, 45)  # (接続タイムアウト, 読み取りタイムアウト) を増加
-        
+
         # LINE Bot SDKの内部セッションを置き換え
         self.line_bot_api._session = session
         
