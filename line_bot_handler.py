@@ -313,7 +313,8 @@ class LineBotHandler:
                             location=location,
                             current_location=current_location,
                             meeting_duration_hours=meeting_duration_hours,
-                            travel_time_minutes=travel_time_minutes
+                            travel_time_minutes=travel_time_minutes,
+                            original_text=user_message
                         )
                         print(f"[DEBUG] カレンダー情報取得完了")
 
@@ -348,7 +349,7 @@ class LineBotHandler:
             traceback.print_exc()
             return TextSendMessage(text=f"エラーが発生しました: {str(e)}")
 
-    def _get_calendar_events_text(self, dates_info, line_user_id, location=None, current_location=None, meeting_duration_hours=None, travel_time_minutes=None):
+    def _get_calendar_events_text(self, dates_info, line_user_id, location=None, current_location=None, meeting_duration_hours=None, travel_time_minutes=None, original_text=''):
         """
         日付情報からカレンダーイベントと空き時間をテキスト形式で取得します（秘書モード用）
 
@@ -359,6 +360,7 @@ class LineBotHandler:
             current_location: 現在地（オプション）
             meeting_duration_hours: 打ち合わせ時間（オプション）
             travel_time_minutes: 移動時間（オプション）
+            original_text: ユーザーの元のメッセージ（最小連続空き時間の抽出に使用）
 
         Returns:
             str: カレンダー情報のテキスト（予定と空き時間を含む）
@@ -369,6 +371,33 @@ class LineBotHandler:
 
             jst = pytz.timezone('Asia/Tokyo')
             calendar_info = ""
+
+            # 最小連続空き時間を抽出（「2時間以上空いている」などの条件）
+            min_free_hours = None
+            if original_text:
+                import re
+                # パターン: 「X時間空いている」「X時間空いてる」「X時間以上空いている」など
+                time_patterns = [
+                    r'(\d+(?:\.\d+)?)\s*時間\s*以上\s*空い(?:てる|ている)',
+                    r'(\d+(?:\.\d+)?)\s*時間\s*空い(?:てる|ている)',
+                    r'(\d+(?:\.\d+)?)\s*時間\s*連続',
+                ]
+                for pattern in time_patterns:
+                    match = re.search(pattern, original_text)
+                    if match:
+                        min_free_hours = float(match.group(1))
+                        print(f"[DEBUG] 秘書モード: 最小連続空き時間を検出: {min_free_hours}時間")
+                        break
+
+                # 上記で見つからない場合でも、「2時間」「3時間」のような表現があればそれを最小連続空き時間として扱う
+                # ただし、meeting_duration_hours が指定されている場合は除外（移動時間計算で使用）
+                if min_free_hours is None and meeting_duration_hours is None:
+                    generic_matches = re.findall(r'(\d+(?:\.\d+)?)\s*時間', original_text)
+                    if generic_matches:
+                        # 複数ある場合はいちばん長い時間を条件として採用
+                        hours_list = [float(h) for h in generic_matches]
+                        min_free_hours = max(hours_list)
+                        print(f"[DEBUG] 秘書モード: 一般的な時間表現から最小連続空き時間を検出: {min_free_hours}時間")
 
             # 各日付情報について処理
             for date_info in dates_info:
@@ -434,6 +463,26 @@ class LineBotHandler:
 
                     # 空き時間を計算（時間指定の予定のみを考慮）
                     free_slots = self.calendar_service.find_free_slots_for_day(start_dt, end_dt, non_all_day_events)
+
+                    # 最小連続空き時間でフィルタリング
+                    if min_free_hours is not None and free_slots:
+                        min_free_minutes = min_free_hours * 60
+                        filtered_slots = []
+                        for slot in free_slots:
+                            slot_start = slot['start']
+                            slot_end = slot['end']
+                            # 時間文字列をdatetimeに変換して時間差を計算
+                            slot_start_dt = jst.localize(datetime.strptime(f"{date_str} {slot_start}", "%Y-%m-%d %H:%M"))
+                            slot_end_dt = jst.localize(datetime.strptime(f"{date_str} {slot_end}", "%Y-%m-%d %H:%M"))
+                            slot_duration = (slot_end_dt - slot_start_dt).total_seconds() / 60  # 分単位
+
+                            if slot_duration >= min_free_minutes:
+                                filtered_slots.append(slot)
+                                print(f"[DEBUG] 秘書モード: 日付 {date_str} に {slot_duration}分（{slot_duration/60:.1f}時間）の連続空き時間を保持: {slot_start}〜{slot_end}")
+                            else:
+                                print(f"[DEBUG] 秘書モード: 日付 {date_str} の空き時間スロット {slot_start}〜{slot_end} は {slot_duration}分で条件未満のため除外")
+
+                        free_slots = filtered_slots
 
                     if free_slots:
                         calendar_info += "【空き時間】\n"
