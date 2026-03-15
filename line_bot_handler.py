@@ -15,13 +15,14 @@ logger = logging.getLogger("line_bot_handler")
 
 class LineBotHandler:
     def __init__(self):
-        # LINE Bot API クライアント初期化（標準）
+        # LINE Bot API クライアント初期化（タイムアウト設定付き）
         if not Config.LINE_CHANNEL_ACCESS_TOKEN:
             raise ValueError("LINE_CHANNEL_ACCESS_TOKEN environment variable is not set")
         if not Config.LINE_CHANNEL_SECRET:
             raise ValueError("LINE_CHANNEL_SECRET environment variable is not set")
-            
-        self.line_bot_api = LineBotApi(Config.LINE_CHANNEL_ACCESS_TOKEN)
+
+        # タイムアウトを15秒に設定
+        self.line_bot_api = LineBotApi(Config.LINE_CHANNEL_ACCESS_TOKEN, timeout=15)
         self.handler = WebhookHandler(Config.LINE_CHANNEL_SECRET)
         
         # カスタムセッション設定をグローバルに適用
