@@ -1476,7 +1476,10 @@ class LineBotHandler:
                         # メモリ上の予定から該当日の予定を取得（APIコールなし）
                         print(f"[DEBUG] 日付{i+1}の予定取得（メモリから）")
                         events = events_by_date.get(date_str, [])
-                        print(f"[DEBUG] 日付{i+1}の取得予定: {events}")
+
+                        # 終日予定を除外（空き時間計算に含めない）
+                        events = [e for e in events if 'T' in e.get('start', '')]
+                        print(f"[DEBUG] 日付{i+1}の取得予定（終日除外後）: {events}")
                         
                         # 8:00〜22:00の間で空き時間を返す
                         day_start = "08:00"
