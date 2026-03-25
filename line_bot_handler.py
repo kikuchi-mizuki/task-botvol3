@@ -460,7 +460,8 @@ class LineBotHandler:
                                 self.line_bot_api.push_message(line_user_id, response_message)
                                 # 会話履歴に保存
                                 response_text = response_message.text if hasattr(response_message, 'text') else str(response_message)
-                                self.db_helper.save_conversation(line_user_id, user_message, response_text)
+                                self.db_helper.save_conversation_message(line_user_id, 'user', user_message)
+                                self.db_helper.save_conversation_message(line_user_id, 'assistant', response_text)
                         except Exception as process_error:
                             # 処理中にエラーが発生した場合、エラーメッセージを送信
                             print(f"[ERROR] 空き時間計算エラー: {process_error}")
