@@ -50,22 +50,24 @@ class AIService:
 2. **必要な空き時間の長さ（required_duration_minutes）- 最優先で計算**
    - **重要: 「X月でY時間の打ち合わせ」= 各日にY時間（Y*60分）の空きを探す**
    - **「3月で2時間」= 3月の各日で2時間(120分)の空き、ではなく日数×時間数ではない！**
-   - **「3月で1時間 移動時間30分」= 各日で1時間+移動往復(60+60=120分)の空き**
    - 基本: 「X時間の打ち合わせ」→ X*60分（日数をかけない！）
-   - **移動時間の処理（重要）**:
-     - 「移動時間Y分」が指定された場合、**必ず往復分（Y*2）を加算**
-     - 例: 「1時間打合せ 移動時間30分」→ 60 + 30*2 = **120分**（日数をかけない！）
-     - 例: 「2時間打合せ 移動時間1時間」→ 120 + 60*2 = **240分**（日数をかけない！）
    - **これは時間範囲（time〜end_time）とは別物！**
    - **time〜end_timeは常に検索範囲（08:00〜22:00など）**
 
-3. **時間範囲の指定方法**
+3. **移動時間の処理（重要）**:
+   - 「移動時間Y分/Y時間」が指定された場合、**travel_time_minutes（片道）として記録**
+   - required_duration_minutesには打合せ時間 + 移動往復時間を含める
+   - 例: 「2時間打合せ 移動時間2時間」
+     - required_duration_minutes: 120 + 120*2 = **360分**（空き枠のチェック用）
+     - travel_time_minutes: **120分**（表示調整用）
+
+4. **時間範囲の指定方法**
    - availability_check: 各日付につき1エントリ、時間範囲は08:00〜22:00
    - 午後のみなら12:00〜18:00、午前のみなら08:00〜12:00
    - **絶対に1時間ごとに分割しない**
    - **同じ日付に複数エントリを返さない**
 
-4. **場所情報の抽出**
+5. **場所情報の抽出**
    - 「東京で」「大阪で」「〇〇で」という場所指定がある場合、locationフィールドに場所名を記録
    - 場所指定がない場合はlocationフィールドは省略
 
@@ -75,12 +77,14 @@ class AIService:
 {{
   "task_type": "availability_check",
   "dates": [{{"date": "YYYY-MM-DD", "time": "HH:MM", "end_time": "HH:MM"}}],
-  "required_duration_minutes": 120,
+  "required_duration_minutes": 360,
+  "travel_time_minutes": 120,
   "location": "東京"
 }}
 ```
 
-場所指定がない場合はlocationフィールドは省略してください。
+- 場所指定がない場合はlocationフィールドは省略
+- 移動時間がない場合はtravel_time_minutesフィールドは省略
 
 ## 正しい例
 
@@ -156,6 +160,21 @@ class AIService:
 }}
 ```
 注意: 4時間=240分、locationフィールドに「東京」を設定
+
+**例7: 「来月大阪で2時間打合せできる日 移動時間は2時間」**
+```json
+{{
+  "task_type": "availability_check",
+  "dates": [
+    {{"date": "2026-04-01", "time": "08:00", "end_time": "22:00"}},
+    ...来月全日
+  ],
+  "required_duration_minutes": 360,
+  "travel_time_minutes": 120,
+  "location": "大阪"
+}}
+```
+注意: 打合せ2時間(120分) + 移動往復2時間×2(240分) = 360分、移動片道は120分
 
 ## 日付解釈
 
@@ -268,6 +287,11 @@ JSON形式のみで返答。説明不要。"""
                         else:
                             logger.warning(f"[WARNING] AIがrequired_duration_minutesを返していない、追加します: {expected_total}分")
                             parsed['required_duration_minutes'] = expected_total
+
+                        # travel_time_minutesも保存（表示調整用）
+                        if not parsed.get('travel_time_minutes'):
+                            parsed['travel_time_minutes'] = travel_minutes
+                            logger.info(f"[DEBUG] travel_time_minutesを設定: {travel_minutes}分")
 
             # required_duration_minutesがある場合、AIが誤って短い枠を生成していないかチェック
             if parsed.get('required_duration_minutes') and parsed.get('task_type') == 'availability_check':

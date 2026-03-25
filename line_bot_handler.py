@@ -440,9 +440,11 @@ class LineBotHandler:
                 print(f"[DEBUG] dates_info: {ai_result.get('dates', [])}")
                 required_duration = ai_result.get('required_duration_minutes')
                 location = ai_result.get('location')
+                travel_time = ai_result.get('travel_time_minutes')
                 print(f"[DEBUG] required_duration_minutes: {required_duration}")
                 print(f"[DEBUG] location: {location}")
-                response_message = self._handle_availability_check(ai_result.get('dates', []), line_user_id, required_duration, location)
+                print(f"[DEBUG] travel_time_minutes: {travel_time}")
+                response_message = self._handle_availability_check(ai_result.get('dates', []), line_user_id, required_duration, location, travel_time)
             elif task_type == 'add_event':
                 # 予定追加時の重複確認ロジック（複数予定対応）
                 if not self.calendar_service:
@@ -1243,7 +1245,7 @@ class LineBotHandler:
             traceback.print_exc()
             return TextSendMessage(text=f"予定表示でエラーが発生しました: {str(e)}")
 
-    def _handle_availability_check(self, dates_info, line_user_id, required_duration_minutes=None, location=None):
+    def _handle_availability_check(self, dates_info, line_user_id, required_duration_minutes=None, location=None, travel_time_minutes=None):
         """空き時間確認を処理します
 
         Args:
@@ -1251,6 +1253,7 @@ class LineBotHandler:
             line_user_id: LINEユーザーID
             required_duration_minutes: 必要な空き時間の長さ（分）。指定された場合、この長さ以上の空き時間のみを返す
             location: 場所指定（例：「東京」）。指定された場合、終日予定のタイトルに場所が含まれる日のみを抽出
+            travel_time_minutes: 移動時間（片道、分）。指定された場合、表示時に前後から引く
         """
         try:
             print(f"[DEBUG] _handle_availability_check開始")
@@ -1258,6 +1261,7 @@ class LineBotHandler:
             print(f"[DEBUG] line_user_id: {line_user_id}")
             print(f"[DEBUG] required_duration_minutes: {required_duration_minutes}")
             print(f"[DEBUG] location: {location}")
+            print(f"[DEBUG] travel_time_minutes: {travel_time_minutes}")
             
             # ユーザーの認証状態をチェック
             if not self._check_user_auth(line_user_id):
@@ -1499,6 +1503,32 @@ class LineBotHandler:
                             print(f"[DEBUG] 日付{i+1}の空き時間計算開始")
                             free_slots = self.calendar_service.find_free_slots_for_day(slot_start_dt, slot_end_dt, events)
                             print(f"[DEBUG] 日付{i+1}の空き時間結果: {free_slots}")
+
+                            # 移動時間がある場合、各空き時間から前後を引く
+                            if travel_time_minutes and travel_time_minutes > 0:
+                                adjusted_free_slots = []
+                                for slot in free_slots:
+                                    # 開始時刻に移動時間を足す、終了時刻から移動時間を引く
+                                    slot_start_time = datetime.strptime(slot['start'], "%H:%M")
+                                    slot_end_time = datetime.strptime(slot['end'], "%H:%M")
+
+                                    # 移動時間を加減
+                                    adjusted_start = slot_start_time + timedelta(minutes=travel_time_minutes)
+                                    adjusted_end = slot_end_time - timedelta(minutes=travel_time_minutes)
+
+                                    # 調整後も有効な時間帯か確認
+                                    if adjusted_start < adjusted_end:
+                                        adjusted_free_slots.append({
+                                            'start': adjusted_start.strftime("%H:%M"),
+                                            'end': adjusted_end.strftime("%H:%M")
+                                        })
+                                        print(f"[DEBUG] 移動時間調整: {slot['start']}〜{slot['end']} → {adjusted_start.strftime('%H:%M')}〜{adjusted_end.strftime('%H:%M')}")
+                                    else:
+                                        print(f"[DEBUG] 移動時間調整後に無効: {slot['start']}〜{slot['end']}")
+
+                                free_slots = adjusted_free_slots
+                                print(f"[DEBUG] 日付{i+1}の移動時間調整後: {free_slots}")
+
                         else:
                             print(f"[DEBUG] 日付{i+1}のスロット範囲が無効: {slot_start} >= {slot_end}")
                             free_slots = []
