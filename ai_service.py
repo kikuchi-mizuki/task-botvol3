@@ -65,15 +65,22 @@ class AIService:
    - **絶対に1時間ごとに分割しない**
    - **同じ日付に複数エントリを返さない**
 
+4. **場所情報の抽出**
+   - 「東京で」「大阪で」「〇〇で」という場所指定がある場合、locationフィールドに場所名を記録
+   - 場所指定がない場合はlocationフィールドは省略
+
 ## 出力形式
 
 ```json
 {{
   "task_type": "availability_check",
   "dates": [{{"date": "YYYY-MM-DD", "time": "HH:MM", "end_time": "HH:MM"}}],
-  "required_duration_minutes": 120
+  "required_duration_minutes": 120,
+  "location": "東京"
 }}
 ```
+
+場所指定がない場合はlocationフィールドは省略してください。
 
 ## 正しい例
 
@@ -132,6 +139,23 @@ class AIService:
   "dates": [{{"date": "2026-03-29", "time": "07:00", "end_time": "08:00", "title": "フランクリン"}}]
 }}
 ```
+
+**例6: 「4月と5月の東京で4時間の会議ができる日」**
+```json
+{{
+  "task_type": "availability_check",
+  "dates": [
+    {{"date": "2026-04-01", "time": "08:00", "end_time": "22:00"}},
+    {{"date": "2026-04-02", "time": "08:00", "end_time": "22:00"}},
+    ...4月全日,
+    {{"date": "2026-05-01", "time": "08:00", "end_time": "22:00"}},
+    ...5月全日
+  ],
+  "required_duration_minutes": 240,
+  "location": "東京"
+}}
+```
+注意: 4時間=240分、locationフィールドに「東京」を設定
 
 ## 日付解釈
 

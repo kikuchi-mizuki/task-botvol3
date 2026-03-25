@@ -439,8 +439,10 @@ class LineBotHandler:
             elif task_type == 'availability_check':
                 print(f"[DEBUG] dates_info: {ai_result.get('dates', [])}")
                 required_duration = ai_result.get('required_duration_minutes')
+                location = ai_result.get('location')
                 print(f"[DEBUG] required_duration_minutes: {required_duration}")
-                response_message = self._handle_availability_check(ai_result.get('dates', []), line_user_id, required_duration)
+                print(f"[DEBUG] location: {location}")
+                response_message = self._handle_availability_check(ai_result.get('dates', []), line_user_id, required_duration, location)
             elif task_type == 'add_event':
                 # 予定追加時の重複確認ロジック（複数予定対応）
                 if not self.calendar_service:
@@ -1241,19 +1243,21 @@ class LineBotHandler:
             traceback.print_exc()
             return TextSendMessage(text=f"予定表示でエラーが発生しました: {str(e)}")
 
-    def _handle_availability_check(self, dates_info, line_user_id, required_duration_minutes=None):
+    def _handle_availability_check(self, dates_info, line_user_id, required_duration_minutes=None, location=None):
         """空き時間確認を処理します
 
         Args:
             dates_info: 日付情報のリスト
             line_user_id: LINEユーザーID
             required_duration_minutes: 必要な空き時間の長さ（分）。指定された場合、この長さ以上の空き時間のみを返す
+            location: 場所指定（例：「東京」）。指定された場合、終日予定のタイトルに場所が含まれる日のみを抽出
         """
         try:
             print(f"[DEBUG] _handle_availability_check開始")
             print(f"[DEBUG] dates_info: {dates_info}")
             print(f"[DEBUG] line_user_id: {line_user_id}")
             print(f"[DEBUG] required_duration_minutes: {required_duration_minutes}")
+            print(f"[DEBUG] location: {location}")
             
             # ユーザーの認証状態をチェック
             if not self._check_user_auth(line_user_id):
@@ -1304,6 +1308,65 @@ class LineBotHandler:
             print(f"[DEBUG] dates_info（マージ後）: {len(dates_info)}件")
             for i, d in enumerate(dates_info):
                 print(f"[DEBUG]   日付{i+1}: {d['date']} {d.get('time')}〜{d.get('end_time')}")
+
+            # 場所フィルタリング（終日予定のタイトルでフィルタ） - 日付数制限の前に実行
+            if location:
+                print(f"[DEBUG] 場所フィルタリング開始: location='{location}'")
+                filtered_dates = []
+                jst = pytz.timezone('Asia/Tokyo')
+
+                for date_info in dates_info:
+                    date_str = date_info.get('date')
+                    if not date_str:
+                        continue
+
+                    try:
+                        # その日の終日予定を取得（00:00〜翌00:00）
+                        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                        start_dt = jst.localize(date_obj)
+                        end_dt = start_dt + timedelta(days=1)
+
+                        events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
+
+                        # 終日予定を抽出（startに'T'が含まれない）
+                        all_day_events = [e for e in events if 'T' not in e.get('start', '')]
+
+                        # 終日予定のタイトルに指定場所が含まれているかチェック
+                        has_location = any(location in e.get('title', '') for e in all_day_events)
+
+                        if has_location:
+                            filtered_dates.append(date_info)
+                            print(f"[DEBUG] 場所マッチ: {date_str} - 終日予定: {[e.get('title') for e in all_day_events]}")
+                        else:
+                            print(f"[DEBUG] 場所不一致: {date_str} - 終日予定: {[e.get('title') for e in all_day_events]}")
+
+                    except Exception as e:
+                        print(f"[ERROR] 日付{date_str}の場所フィルタリングエラー: {e}")
+                        import traceback
+                        traceback.print_exc()
+
+                dates_info = filtered_dates
+                print(f"[DEBUG] 場所フィルタリング後: {len(dates_info)}件")
+
+                if not dates_info:
+                    return TextSendMessage(
+                        text=f"❌ 指定された場所（{location}）の日が見つかりませんでした。\n\n"
+                             f"カレンダーの終日予定に場所を記録してください。"
+                    )
+
+            # 日付数の制限チェック（タイムアウト対策） - 場所フィルタリング後にチェック
+            MAX_DATES = 30
+            if len(dates_info) > MAX_DATES:
+                print(f"[WARNING] 日付数が上限を超えています: {len(dates_info)}件 > {MAX_DATES}件")
+                return TextSendMessage(
+                    text=f"❌ 日付範囲が広すぎます\n\n"
+                         f"リクエスト: {len(dates_info)}日間\n"
+                         f"上限: {MAX_DATES}日間\n\n"
+                         f"月を分けてお試しください。\n"
+                         f"例:\n"
+                         f"• 「4月の空き時間」\n"
+                         f"• 「5月の空き時間」"
+                )
 
             print(f"[DEBUG] 空き時間計算開始")
             free_slots_by_frame = []
