@@ -1315,35 +1315,65 @@ class LineBotHandler:
                 filtered_dates = []
                 jst = pytz.timezone('Asia/Tokyo')
 
-                for date_info in dates_info:
-                    date_str = date_info.get('date')
-                    if not date_str:
-                        continue
+                # 全期間の予定を一括取得（APIコールを1回に削減）
+                try:
+                    # 最初と最後の日付を取得
+                    date_strings = [d.get('date') for d in dates_info if d.get('date')]
+                    if not date_strings:
+                        print(f"[WARNING] 有効な日付がありません")
+                        return TextSendMessage(text="日付情報が正しく認識できませんでした。")
 
-                    try:
-                        # その日の終日予定を取得（00:00〜翌00:00）
-                        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-                        start_dt = jst.localize(date_obj)
-                        end_dt = start_dt + timedelta(days=1)
+                    date_strings.sort()
+                    first_date_str = date_strings[0]
+                    last_date_str = date_strings[-1]
 
-                        events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
+                    first_date = datetime.strptime(first_date_str, "%Y-%m-%d")
+                    last_date = datetime.strptime(last_date_str, "%Y-%m-%d")
 
-                        # 終日予定を抽出（startに'T'が含まれない）
-                        all_day_events = [e for e in events if 'T' not in e.get('start', '')]
+                    start_dt = jst.localize(first_date)
+                    end_dt = jst.localize(last_date) + timedelta(days=1)
+
+                    print(f"[DEBUG] 全期間の予定を一括取得: {first_date_str} 〜 {last_date_str}")
+                    all_events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
+                    print(f"[DEBUG] 取得した予定数: {len(all_events)}件")
+
+                    # 終日予定を日付ごとに分類
+                    all_day_events_by_date = {}
+                    for event in all_events:
+                        start = event.get('start', '')
+                        # 終日予定かチェック（'T'が含まれない）
+                        if 'T' not in start:
+                            # 日付部分を抽出（YYYY-MM-DD形式）
+                            date_part = start
+                            if date_part not in all_day_events_by_date:
+                                all_day_events_by_date[date_part] = []
+                            all_day_events_by_date[date_part].append(event)
+
+                    print(f"[DEBUG] 終日予定がある日数: {len(all_day_events_by_date)}日")
+
+                    # 各日付をチェック
+                    for date_info in dates_info:
+                        date_str = date_info.get('date')
+                        if not date_str:
+                            continue
+
+                        # その日の終日予定を取得
+                        day_all_day_events = all_day_events_by_date.get(date_str, [])
 
                         # 終日予定のタイトルに指定場所が含まれているかチェック
-                        has_location = any(location in e.get('title', '') for e in all_day_events)
+                        has_location = any(location in e.get('title', '') for e in day_all_day_events)
 
                         if has_location:
                             filtered_dates.append(date_info)
-                            print(f"[DEBUG] 場所マッチ: {date_str} - 終日予定: {[e.get('title') for e in all_day_events]}")
+                            print(f"[DEBUG] 場所マッチ: {date_str} - 終日予定: {[e.get('title') for e in day_all_day_events]}")
                         else:
-                            print(f"[DEBUG] 場所不一致: {date_str} - 終日予定: {[e.get('title') for e in all_day_events]}")
+                            print(f"[DEBUG] 場所不一致: {date_str} - 終日予定: {[e.get('title') for e in day_all_day_events]}")
 
-                    except Exception as e:
-                        print(f"[ERROR] 日付{date_str}の場所フィルタリングエラー: {e}")
-                        import traceback
-                        traceback.print_exc()
+                except Exception as e:
+                    print(f"[ERROR] 場所フィルタリングエラー: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return TextSendMessage(text=f"場所フィルタリング中にエラーが発生しました: {str(e)}")
 
                 dates_info = filtered_dates
                 print(f"[DEBUG] 場所フィルタリング後: {len(dates_info)}件")
@@ -1369,6 +1399,53 @@ class LineBotHandler:
                 )
 
             print(f"[DEBUG] 空き時間計算開始")
+
+            # 全期間の予定を一括取得（APIコール最適化）
+            jst = pytz.timezone('Asia/Tokyo')
+            try:
+                date_strings = [d.get('date') for d in dates_info if d.get('date')]
+                if not date_strings:
+                    print(f"[WARNING] 有効な日付がありません")
+                    return TextSendMessage(text="日付情報が正しく認識できませんでした。")
+
+                date_strings.sort()
+                first_date_str = date_strings[0]
+                last_date_str = date_strings[-1]
+
+                first_date = datetime.strptime(first_date_str, "%Y-%m-%d")
+                last_date = datetime.strptime(last_date_str, "%Y-%m-%d")
+
+                bulk_start_dt = jst.localize(first_date)
+                bulk_end_dt = jst.localize(last_date) + timedelta(days=1)
+
+                print(f"[DEBUG] 全期間の予定を一括取得（空き時間計算用）: {first_date_str} 〜 {last_date_str}")
+                all_events_bulk = self.calendar_service.get_events_for_time_range(bulk_start_dt, bulk_end_dt, line_user_id)
+                print(f"[DEBUG] 取得した予定数（空き時間計算用）: {len(all_events_bulk)}件")
+
+                # 予定を日付ごとに分類
+                events_by_date = {}
+                for event in all_events_bulk:
+                    start = event.get('start', '')
+                    # 日付部分を抽出
+                    if 'T' in start:
+                        # dateTime形式: 2026-04-02T09:00:00+09:00
+                        event_date = start.split('T')[0]
+                    else:
+                        # date形式（終日）: 2026-04-02
+                        event_date = start
+
+                    if event_date not in events_by_date:
+                        events_by_date[event_date] = []
+                    events_by_date[event_date].append(event)
+
+                print(f"[DEBUG] 予定がある日数: {len(events_by_date)}日")
+
+            except Exception as e:
+                print(f"[ERROR] 予定一括取得エラー: {e}")
+                import traceback
+                traceback.print_exc()
+                return TextSendMessage(text=f"予定取得中にエラーが発生しました: {str(e)}")
+
             free_slots_by_frame = []
             for i, date_info in enumerate(dates_info):
                 print(f"[DEBUG] 日付{i+1}処理開始: タイプ={type(date_info)}, 値={date_info}")
@@ -1388,18 +1465,17 @@ class LineBotHandler:
                 end_time = date_info.get('end_time')
 
                 print(f"[DEBUG] 日付{i+1}の抽出値: date={date_str}, start_time={start_time}, end_time={end_time}")
-                
+
                 if date_str and start_time and end_time:
                     try:
-                        jst = pytz.timezone('Asia/Tokyo')
                         start_dt = jst.localize(datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M"))
                         end_dt = jst.localize(datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M"))
-                        
+
                         print(f"[DEBUG] 日付{i+1}のdatetime: start_dt={start_dt}, end_dt={end_dt}")
-                        
-                        # 枠内の予定を取得
-                        print(f"[DEBUG] 日付{i+1}の予定取得開始")
-                        events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
+
+                        # メモリ上の予定から該当日の予定を取得（APIコールなし）
+                        print(f"[DEBUG] 日付{i+1}の予定取得（メモリから）")
+                        events = events_by_date.get(date_str, [])
                         print(f"[DEBUG] 日付{i+1}の取得予定: {events}")
                         
                         # 8:00〜22:00の間で空き時間を返す
