@@ -32,6 +32,8 @@ class AIService:
             conversation_history: 会話履歴 [{'role': 'user'/'assistant', 'content': '...'}]
         """
         try:
+            logger.info(f"[DEBUG] ===== extract_dates_and_times開始 =====")
+            logger.info(f"[DEBUG] ユーザー入力テキスト: '{text}'")
             now_jst = self._get_jst_now_str()
             # シンプルで明確なプロンプト（優先順位順に構造化）
             system_prompt = f"""あなたはスケジュール管理アシスタントです。現在は {now_jst} です。
@@ -202,32 +204,46 @@ JSON形式のみで返答。説明不要。"""
             import re
             travel_time_match = re.search(r'移動時間[はわ]?(\d+)分', text) or re.search(r'移動時間[はわ]?(\d+)時間', text)
             if travel_time_match and parsed.get('task_type') == 'availability_check':
-                travel_minutes = int(travel_time_match.group(1))
-                if '時間' in travel_time_match.group(0):
+                # マッチしたテキストをログに記録
+                matched_text = travel_time_match.group(0)
+                matched_number = travel_time_match.group(1)
+                logger.info(f"[DEBUG] 移動時間マッチ: テキスト='{matched_text}', 数値='{matched_number}'")
+
+                travel_minutes = int(matched_number)
+                # 単位が「時間」の場合のみ60倍（「移動時間」のような部分一致ではなく、末尾の単位をチェック）
+                if matched_text.endswith('時間'):
                     travel_minutes *= 60
+                    logger.info(f"[DEBUG] 時間単位を分に変換: {matched_number}時間 → {travel_minutes}分")
 
                 logger.info(f"[DEBUG] 移動時間を検出: {travel_minutes}分（往復: {travel_minutes*2}分）")
 
-                # 打合せ時間を推定
-                meeting_match = re.search(r'(\d+)時間[打うち][ち合あわ]?[合せ]?[わせ]?', text) or re.search(r'(\d+)分[打うち][ち合あわ]?[合せ]?[わせ]?', text)
-                if meeting_match:
-                    meeting_minutes = int(meeting_match.group(1))
-                    if '時間' in meeting_match.group(0):
-                        meeting_minutes *= 60
+                # 移動時間の妥当性チェック（片道4時間=240分以下）
+                MAX_TRAVEL_MINUTES = 240  # 4時間
+                if travel_minutes > MAX_TRAVEL_MINUTES:
+                    logger.error(f"[ERROR] 移動時間が異常に大きい: {travel_minutes}分（上限: {MAX_TRAVEL_MINUTES}分）")
+                    logger.error(f"[ERROR] マッチテキスト: '{matched_text}'、元テキスト: '{text}'")
+                    logger.error(f"[ERROR] 移動時間の処理をスキップします")
+                else:
+                    # 打合せ時間を推定
+                    meeting_match = re.search(r'(\d+)時間[打うち][ち合あわ]?[合せ]?[わせ]?', text) or re.search(r'(\d+)分[打うち][ち合あわ]?[合せ]?[わせ]?', text)
+                    if meeting_match:
+                        meeting_minutes = int(meeting_match.group(1))
+                        if '時間' in meeting_match.group(0):
+                            meeting_minutes *= 60
 
-                    expected_total = meeting_minutes + travel_minutes * 2  # 往復
-                    logger.info(f"[DEBUG] 打合せ時間: {meeting_minutes}分 + 移動往復: {travel_minutes*2}分 = {expected_total}分")
+                        expected_total = meeting_minutes + travel_minutes * 2  # 往復
+                        logger.info(f"[DEBUG] 打合せ時間: {meeting_minutes}分 + 移動往復: {travel_minutes*2}分 = {expected_total}分")
 
-                    # AIがrequired_duration_minutesを正しく計算しているかチェック
-                    if parsed.get('required_duration_minutes'):
-                        current_req = parsed['required_duration_minutes']
-                        if current_req < expected_total:
-                            logger.warning(f"[WARNING] AIが移動時間を含めていない: {current_req}分 < {expected_total}分")
-                            logger.warning(f"[WARNING] 修正: {current_req}分 → {expected_total}分")
+                        # AIがrequired_duration_minutesを正しく計算しているかチェック
+                        if parsed.get('required_duration_minutes'):
+                            current_req = parsed['required_duration_minutes']
+                            if current_req < expected_total:
+                                logger.warning(f"[WARNING] AIが移動時間を含めていない: {current_req}分 < {expected_total}分")
+                                logger.warning(f"[WARNING] 修正: {current_req}分 → {expected_total}分")
+                                parsed['required_duration_minutes'] = expected_total
+                        else:
+                            logger.warning(f"[WARNING] AIがrequired_duration_minutesを返していない、追加します: {expected_total}分")
                             parsed['required_duration_minutes'] = expected_total
-                    else:
-                        logger.warning(f"[WARNING] AIがrequired_duration_minutesを返していない、追加します: {expected_total}分")
-                        parsed['required_duration_minutes'] = expected_total
 
             # required_duration_minutesがある場合、AIが誤って短い枠を生成していないかチェック
             if parsed.get('required_duration_minutes') and parsed.get('task_type') == 'availability_check':
