@@ -2,6 +2,12 @@ import os
 import logging
 logging.basicConfig(level=logging.INFO)
 
+# デプロイバージョン確認用
+DEPLOY_VERSION = "v2026-03-25-18:40-fix-ai-duration"
+logging.info(f"========================================")
+logging.info(f"アプリ起動: {DEPLOY_VERSION}")
+logging.info(f"========================================")
+
 # Railway環境でcredentials.jsonを書き出す
 if "GOOGLE_CREDENTIALS_FILE" in os.environ:
     try:
