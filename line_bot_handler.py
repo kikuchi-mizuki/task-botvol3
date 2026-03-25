@@ -438,11 +438,47 @@ class LineBotHandler:
                 response_message = self._handle_show_schedule(ai_result.get('dates', []), line_user_id)
             elif task_type == 'availability_check':
                 print(f"[DEBUG] dates_info: {ai_result.get('dates', [])}")
+                dates_info = ai_result.get('dates', [])
                 required_duration = ai_result.get('required_duration_minutes')
                 location = ai_result.get('location')
                 print(f"[DEBUG] required_duration_minutes: {required_duration}")
                 print(f"[DEBUG] location: {location}")
-                response_message = self._handle_availability_check(ai_result.get('dates', []), line_user_id, required_duration, location)
+
+                # 処理が長くなる可能性がある場合（10日以上）、先に処理中メッセージを送信
+                if len(dates_info) >= 10:
+                    try:
+                        print(f"[DEBUG] 日付数が多いため処理中メッセージを送信: {len(dates_info)}日")
+                        self.line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text=f"⏳ 処理中です（{len(dates_info)}日分を確認中）\nしばらくお待ちください...")
+                        )
+                        # reply_tokenを使ったので、結果はpush_messageで送信
+                        try:
+                            response_message = self._handle_availability_check(dates_info, line_user_id, required_duration, location)
+                            # push_messageで結果を送信
+                            if response_message:
+                                self.line_bot_api.push_message(line_user_id, response_message)
+                                # 会話履歴に保存
+                                response_text = response_message.text if hasattr(response_message, 'text') else str(response_message)
+                                self.db_helper.save_conversation(line_user_id, user_message, response_text)
+                        except Exception as process_error:
+                            # 処理中にエラーが発生した場合、エラーメッセージを送信
+                            print(f"[ERROR] 空き時間計算エラー: {process_error}")
+                            import traceback
+                            traceback.print_exc()
+                            error_message = TextSendMessage(
+                                text=f"❌ 処理中にエラーが発生しました\n\n"
+                                     f"エラー内容: {str(process_error)[:100]}\n\n"
+                                     f"日付範囲を短くしてお試しください。"
+                            )
+                            self.line_bot_api.push_message(line_user_id, error_message)
+                        return None  # 既に送信済みなのでNoneを返す
+                    except Exception as e:
+                        print(f"[ERROR] 処理中メッセージ送信エラー: {e}")
+                        # エラーの場合は通常フローで処理
+                        response_message = self._handle_availability_check(dates_info, line_user_id, required_duration, location)
+                else:
+                    response_message = self._handle_availability_check(dates_info, line_user_id, required_duration, location)
             elif task_type == 'add_event':
                 # 予定追加時の重複確認ロジック（複数予定対応）
                 if not self.calendar_service:

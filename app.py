@@ -105,11 +105,16 @@ def handle_message(event):
         
         # メッセージを処理してレスポンスを取得
         response = line_bot_handler.handle_message(event)
-        
+
+        # responseがNoneの場合は既に送信済みなのでスキップ
+        if response is None:
+            logger.info("メッセージは既に送信済みです（処理中メッセージ経由）")
+            return
+
         # LINEにメッセージを送信（SSLエラー対応のリトライ機能付き）
         max_retries = 5
         retry_delay = 2  # 秒
-        
+
         for attempt in range(max_retries):
             try:
                 line_bot_handler.line_bot_api.reply_message(
