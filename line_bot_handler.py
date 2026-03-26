@@ -451,7 +451,11 @@ class LineBotHandler:
                     return TextSendMessage(text="カレンダーサービスが初期化されていません。")
 
                 dates = ai_result.get('dates', [])
-                travel_time_hours = ai_result.get('travel_time_hours')
+                travel_time_minutes = ai_result.get('travel_time_minutes')
+                # 分を時間に変換（既存の処理との互換性のため）
+                travel_time_hours = travel_time_minutes / 60 if travel_time_minutes else None
+                print(f"[DEBUG] travel_time_minutes: {travel_time_minutes}, travel_time_hours: {travel_time_hours}")
+
                 if not dates:
                     return TextSendMessage(text="イベント情報を正しく認識できませんでした。\n\n例: 「明日の午前9時から会議を追加して」\n「来週月曜日の14時から打ち合わせ」")
 
