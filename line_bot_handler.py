@@ -1616,9 +1616,21 @@ class LineBotHandler:
                 for frame in free_slots_by_frame:
                     requested_start = frame.get('start_time')
                     requested_end = frame.get('end_time')
+
+                    def _to_minutes(hhmm):
+                        h, m = hhmm.split(':')
+                        return int(h) * 60 + int(m)
+
+                    req_start_min = _to_minutes(requested_start)
+                    req_end_min = _to_minutes(requested_end)
+
+                    # 完全一致ではなく「内包判定」:
+                    # 空き枠が requested_start〜requested_end を含んでいればOK
                     full_range_available = any(
-                        slot.get('start') == requested_start and slot.get('end') == requested_end
+                        _to_minutes(slot.get('start')) <= req_start_min and
+                        _to_minutes(slot.get('end')) >= req_end_min
                         for slot in frame.get('free_slots', [])
+                        if slot.get('start') and slot.get('end')
                     )
                     if full_range_available:
                         strict_frames.append(frame)
