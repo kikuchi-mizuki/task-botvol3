@@ -1594,6 +1594,51 @@ class LineBotHandler:
                 free_slots_by_frame = filtered_frames
                 print(f"[DEBUG] フィルタリング後: {len(free_slots_by_frame)}日分")
 
+            # 明示的な時間帯指定（例: 09:00〜18:00）があり、所要時間指定がない場合は
+            # 「その時間帯が丸ごと空いている日」のみ返す
+            explicit_range_mode = False
+            if dates_info and not required_duration_minutes:
+                date_ranges = {
+                    (d.get('time'), d.get('end_time'))
+                    for d in dates_info
+                    if isinstance(d, dict) and d.get('time') and d.get('end_time')
+                }
+                # 08:00〜22:00 はデフォルト範囲なので除外して判定
+                non_default_ranges = {
+                    (start, end) for start, end in date_ranges
+                    if not (start == '08:00' and end == '22:00')
+                }
+                explicit_range_mode = len(non_default_ranges) == 1
+                print(f"[DEBUG] explicit_range_mode: {explicit_range_mode}, non_default_ranges={non_default_ranges}")
+
+            if explicit_range_mode:
+                strict_frames = []
+                for frame in free_slots_by_frame:
+                    requested_start = frame.get('start_time')
+                    requested_end = frame.get('end_time')
+                    full_range_available = any(
+                        slot.get('start') == requested_start and slot.get('end') == requested_end
+                        for slot in frame.get('free_slots', [])
+                    )
+                    if full_range_available:
+                        strict_frames.append(frame)
+
+                # 表示は日付一覧に寄せる（時間帯はヘッダーで明示）
+                if strict_frames:
+                    header_start = strict_frames[0].get('start_time')
+                    header_end = strict_frames[0].get('end_time')
+                    response_lines = [f"✅{header_start}〜{header_end}で空いている日程です！", ""]
+                    for frame in strict_frames:
+                        dt = self.jst.localize(datetime.strptime(frame['date'], "%Y-%m-%d"))
+                        weekday = "月火水木金土日"[dt.weekday()]
+                        response_lines.append(f"・{dt.month}/{dt.day}（{weekday}）")
+                    response_text = "\n".join(response_lines)
+                else:
+                    response_text = "✅指定時間帯（開始〜終了）が丸ごと空いている日程はありませんでした。"
+
+                print(f"[DEBUG] strict availability response生成完了: {response_text}")
+                return TextSendMessage(text=response_text)
+
             print(f"[DEBUG] format_free_slots_response_by_frame呼び出し")
             response_text = self.ai_service.format_free_slots_response_by_frame(free_slots_by_frame)
             print(f"[DEBUG] レスポンス生成完了: {response_text}")
