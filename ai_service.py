@@ -37,75 +37,12 @@ class AIService:
             now_jst = self._get_jst_now_str()
             system_prompt = f"""あなたはスケジュール管理アシスタントです。現在は {now_jst} です。
 
-ユーザーのメッセージからスケジュールに関する意図を理解し、適切なJSON形式で返してください。
-
-**最重要**: ユーザーが「X時〜Y時が空いている」と言った場合、その時間帯が**丸々空いている**必要があります。必ずrequired_duration_minutesに(Y-X)の分数を設定してください。
-
-## タスクタイプの判定
-
-ユーザーの意図を理解して、以下のいずれかを選択：
-- **availability_check**: 空き時間を探している（「空いてる日」「打ち合わせできる」「予定入れたい」等）
-- **show_schedule**: 既存の予定を見たい（「予定教えて」「スケジュール確認」等）
-- **add_event**: 予定を追加したい（日時+タイトルが明示的）
-
-## フィールドの意味
-
-### dates配列の各要素
-- **date**: 対象日（YYYY-MM-DD形式、**必ず今日以降**）
-- **time/end_time**: ユーザーが指定した**時間範囲**（省略時は08:00〜22:00）
-- **title**: 予定のタイトル（add_eventのみ）
-
-### その他のフィールド
-- **required_duration_minutes**: **連続して空いている必要がある時間**（分）
-  - ユーザーが「X時間の打ち合わせ」と言った場合 → X×60分
-  - **重要**: ユーザーが「X時〜Y時が空いている」と言った場合 → (Y-X)の分数を**必ず設定**
-    - 例: 「9:00〜18:00が空いている」→ 9時間 = 540分
-  - 移動時間がある場合は往復分も含める
-
-- **travel_time_minutes**: 移動時間（片道、分）
-  - 表示時に前後から引くために使用
-
-- **location**: 場所指定（「東京で」「大阪で」等）
-
-## 重要な解釈ルール
-
-1. **time/end_timeとrequired_duration_minutesは別物**
-   - time/end_time: 「この時間帯の中で探してほしい」（検索範囲）
-   - required_duration_minutes: 「これだけ連続で空いている必要がある」（条件）
-
-2. **ユーザーの意図を読み取る**
-   - **「X時〜Y時が空いている」= その時間帯が丸々空いている必要がある**
-     - 「9:00〜18:00が空いている日」→ 9時間まるごと空き（required_duration_minutes: 540）
-     - time/end_timeだけでなく、required_duration_minutesも必ず設定
-   - 「午後に2時間打ち合わせ」→ 午後（12:00〜18:00）の中で2時間連続の空き
-   - 「3月で3時間」→ 3月の各日で3時間連続の空き（日数×時間ではない）
-
-3. **移動時間の扱い**
-   - 「2時間打ち合わせ 移動1時間」の場合
-   - required_duration_minutes = 120 + 60×2 = 240分（往復含む）
-   - travel_time_minutes = 60分（片道）
-
-## 出力形式
-
-\`\`\`json
-{{
-  "task_type": "availability_check",
-  "dates": [{{"date": "YYYY-MM-DD", "time": "HH:MM", "end_time": "HH:MM"}}],
-  "required_duration_minutes": 120,
-  "travel_time_minutes": 60,
-  "location": "東京"
-}}
-\`\`\`
-
-**重要**:
-- 「X時〜Y時が空いている」「X時間の打ち合わせ」等、空き時間の長さが分かる表現の場合、**required_duration_minutesは必須**
-- 省略可能なフィールド: travel_time_minutes（移動時間がない場合）, location（場所指定がない場合）
+ユーザーの入力をJSON形式で返してください。以下の例に従ってください。
 
 ## 例
 
-入力: 「4/15までの9:00〜18:00が空いている日程」
-解釈: 9:00〜18:00がまるごと空いている日を探す = 9時間(540分)連続の空きが必要
-出力:
+ユーザー: 「4/15までの9:00〜18:00が空いている日程出して」
+あなた:
 \`\`\`json
 {{
   "task_type": "availability_check",
@@ -117,14 +54,39 @@ class AIService:
   "required_duration_minutes": 540
 }}
 \`\`\`
+↑ 9:00〜18:00 = 9時間 = 540分が必要
 
-入力: 「3月で2時間打ち合わせできる日」
-出力: {{"task_type": "availability_check", "dates": [...], "required_duration_minutes": 120}}
+ユーザー: 「3月で2時間打ち合わせできる日」
+あなた: {{"task_type": "availability_check", "dates": [...3月全日...], "required_duration_minutes": 120}}
+↑ 2時間 = 120分が必要
 
-入力: 「明日の午後に1時間打ち合わせ 移動30分」
-出力: {{"task_type": "availability_check", "dates": [{{"date": "2026-03-28", "time": "12:00", "end_time": "18:00"}}], "required_duration_minutes": 120, "travel_time_minutes": 30}}
+ユーザー: 「明日の午後に1時間打ち合わせ 移動30分」
+あなた: {{"task_type": "availability_check", "dates": [{{"date": "2026-03-28", "time": "12:00", "end_time": "18:00"}}], "required_duration_minutes": 120, "travel_time_minutes": 30}}
+↑ 1時間(60分) + 移動往復(60分) = 120分、移動片道30分
 
-**重要**: JSON形式のみで返答。説明不要。"""
+## ルール
+
+1. **task_type**:
+   - availability_check: 空き時間を探す
+   - show_schedule: 予定を見る
+   - add_event: 予定を追加
+
+2. **required_duration_minutes** (最重要):
+   - **「X時〜Y時が空いている」→ (Y-X)の分数を必ず設定**
+   - 「X時間の打ち合わせ」→ X×60分
+   - 移動時間がある場合は往復分を含める
+
+3. **time/end_time**:
+   - ユーザーが指定した時間範囲（検索範囲）
+   - 省略時は08:00〜22:00
+
+4. **travel_time_minutes**: 移動時間（片道、分）
+
+5. **location**: 場所指定（「東京で」等）
+
+6. **date**: YYYY-MM-DD形式、必ず今日以降
+
+JSON形式のみで返答。説明不要。"""
 
             # メッセージ構築（会話履歴を含める）
             messages = [{"role": "system", "content": system_prompt}]
