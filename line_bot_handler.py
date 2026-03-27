@@ -1594,10 +1594,11 @@ class LineBotHandler:
                 free_slots_by_frame = filtered_frames
                 print(f"[DEBUG] フィルタリング後: {len(free_slots_by_frame)}日分")
 
-            # 明示的な時間帯指定（例: 09:00〜18:00）があり、所要時間指定がない場合は
-            # 「その時間帯が丸ごと空いている日」のみ返す
+            # 明示的な時間帯指定（例: 09:00〜18:00）がある場合は
+            # required_duration_minutesの有無に関係なく
+            # 「その時間帯を内包して空いている日」のみ返す
             explicit_range_mode = False
-            if dates_info and not required_duration_minutes:
+            if dates_info:
                 date_ranges = {
                     (d.get('time'), d.get('end_time'))
                     for d in dates_info
