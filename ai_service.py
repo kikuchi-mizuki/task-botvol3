@@ -50,11 +50,10 @@ class AIService:
     {{"date": "2026-03-28", "time": "09:00", "end_time": "18:00"}},
     {{"date": "2026-03-29", "time": "09:00", "end_time": "18:00"}},
     ...4/15まで
-  ],
-  "required_duration_minutes": 540
+  ]
 }}
 \`\`\`
-↑ 9:00〜18:00 = 9時間 = 540分が必要
+↑ 時間帯（9:00〜18:00）は検索範囲。required_duration_minutesは不要
 
 ユーザー: 「3月で2時間打ち合わせできる日」
 あなた: {{"task_type": "availability_check", "dates": [...3月全日...], "required_duration_minutes": 120}}
@@ -72,7 +71,8 @@ class AIService:
    - add_event: 予定を追加
 
 2. **required_duration_minutes** (最重要):
-   - **「X時〜Y時が空いている」→ (Y-X)の分数を必ず設定**
+   - **「X時間の打ち合わせ」「X分確保したい」など所要時間の指定がある時のみ設定**
+   - 「X時〜Y時が空いている」は検索範囲指定なのでrequired_duration_minutesは設定しない
    - 「X時間の打ち合わせ」→ X×60分
    - 移動時間がある場合は往復分を含める
 
@@ -202,6 +202,9 @@ JSON形式のみで返答。説明不要。"""
             if parsed.get('required_duration_minutes') and parsed.get('task_type') == 'availability_check':
                 required_minutes = parsed['required_duration_minutes']
                 logger.info(f"[DEBUG] required_duration_minutes最終確認: {required_minutes}分")
+                has_explicit_time_range = bool(re.search(r'\d{1,2}[:時]\d{0,2}\s*[〜~\-]\s*\d{1,2}[:時]\d{0,2}', text))
+                if has_explicit_time_range:
+                    logger.info("[DEBUG] 明示的な時間範囲指定を検出。time/end_timeの自動補正はスキップします")
 
                 # 各dateのtime〜end_timeが required_duration_minutes と同じ長さの場合は修正
                 for d in parsed.get('dates', []):
@@ -213,7 +216,7 @@ JSON形式のみで返答。説明不要。"""
                             duration_minutes = int((end - start).total_seconds() / 60)
 
                             # 枠の長さがrequired_duration_minutesとほぼ同じ（±10分）の場合
-                            if abs(duration_minutes - required_minutes) <= 10:
+                            if not has_explicit_time_range and abs(duration_minutes - required_minutes) <= 10:
                                 logger.warning(f"[WARNING] AIが誤ってrequired_duration_minutesと同じ長さの枠を生成: {d['time']}〜{d['end_time']} ({duration_minutes}分)")
                                 logger.warning(f"[WARNING] 1日全体の範囲（08:00〜22:00）に修正します")
                                 d['time'] = '08:00'

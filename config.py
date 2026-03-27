@@ -40,8 +40,13 @@ class Config:
             raise ValueError(f"必要な環境変数が設定されていません: {', '.join(missing_vars)}")
         
         # Google認証ファイルの存在確認
-        if not os.path.exists(cls.GOOGLE_CREDENTIALS_FILE):
-            print(f"警告: Google認証ファイル '{cls.GOOGLE_CREDENTIALS_FILE}' が見つかりません。")
+        # GOOGLE_CREDENTIALS_FILE にJSON本体が入る環境では、app.pyが credentials.json を書き出す前提
+        credentials_file = cls.GOOGLE_CREDENTIALS_FILE
+        if credentials_file.strip().startswith('{'):
+            credentials_file = 'credentials.json'
+
+        if not os.path.exists(credentials_file):
+            print(f"警告: Google認証ファイル '{credentials_file}' が見つかりません。")
             print("Google Calendar APIを使用するには、credentials.jsonファイルが必要です。")
             # Railway環境でのデバッグ情報
             if os.getenv('RAILWAY_ENVIRONMENT'):
