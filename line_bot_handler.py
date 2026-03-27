@@ -1476,6 +1476,15 @@ class LineBotHandler:
 
                 if date_str and start_time and end_time:
                     try:
+                        def _to_minutes(hhmm):
+                            h, m = hhmm.split(':')
+                            return int(h) * 60 + int(m)
+
+                        def _to_hhmm(total_minutes):
+                            h = total_minutes // 60
+                            m = total_minutes % 60
+                            return f"{h:02d}:{m:02d}"
+
                         start_dt = jst.localize(datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M"))
                         end_dt = jst.localize(datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M"))
 
@@ -1508,6 +1517,21 @@ class LineBotHandler:
                             free_slots = self.calendar_service.find_free_slots_for_day(slot_start_dt, slot_end_dt, events)
                             raw_free_slots = [dict(slot) for slot in free_slots]
                             print(f"[DEBUG] 日付{i+1}の空き時間結果: {free_slots}")
+
+                            # 移動時間ありの厳密判定用に、前後移動分を含んだ元枠でも空き時間を計算
+                            if travel_time_minutes and travel_time_minutes > 0:
+                                day_start_min = _to_minutes(day_start)
+                                day_end_min = _to_minutes(day_end)
+                                check_start_min = max(day_start_min, _to_minutes(slot_start) - travel_time_minutes)
+                                check_end_min = min(day_end_min, _to_minutes(slot_end) + travel_time_minutes)
+
+                                check_start = _to_hhmm(check_start_min)
+                                check_end = _to_hhmm(check_end_min)
+                                if check_start < check_end:
+                                    check_start_dt = jst.localize(datetime.strptime(f"{date_str} {check_start}", "%Y-%m-%d %H:%M"))
+                                    check_end_dt = jst.localize(datetime.strptime(f"{date_str} {check_end}", "%Y-%m-%d %H:%M"))
+                                    raw_free_slots = self.calendar_service.find_free_slots_for_day(check_start_dt, check_end_dt, events)
+                                    print(f"[DEBUG] 日付{i+1}の厳密判定用raw_free_slots({check_start}〜{check_end}): {raw_free_slots}")
 
                             # 移動時間がある場合、各空き時間から前後を引く
                             if travel_time_minutes and travel_time_minutes > 0:
