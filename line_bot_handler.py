@@ -1506,6 +1506,7 @@ class LineBotHandler:
                         if slot_start < slot_end:
                             print(f"[DEBUG] 日付{i+1}の空き時間計算開始")
                             free_slots = self.calendar_service.find_free_slots_for_day(slot_start_dt, slot_end_dt, events)
+                            raw_free_slots = [dict(slot) for slot in free_slots]
                             print(f"[DEBUG] 日付{i+1}の空き時間結果: {free_slots}")
 
                             # 移動時間がある場合、各空き時間から前後を引く
@@ -1536,12 +1537,14 @@ class LineBotHandler:
                         else:
                             print(f"[DEBUG] 日付{i+1}のスロット範囲が無効: {slot_start} >= {slot_end}")
                             free_slots = []
+                            raw_free_slots = []
                         
                         free_slots_by_frame.append({
                             'date': date_str,
                             'start_time': slot_start,
                             'end_time': slot_end,
-                            'free_slots': free_slots
+                            'free_slots': free_slots,
+                            'raw_free_slots': raw_free_slots
                         })
                         print(f"[DEBUG] 日付{i+1}のfree_slots_by_frame追加完了")
                         
@@ -1554,7 +1557,8 @@ class LineBotHandler:
                             'date': date_str,
                             'start_time': start_time,
                             'end_time': end_time,
-                            'free_slots': []
+                            'free_slots': [],
+                            'raw_free_slots': []
                         })
                 else:
                     print(f"[DEBUG] 日付{i+1}の必須項目が不足: date_str={date_str}, start_time={start_time}, end_time={end_time}")
@@ -1625,12 +1629,21 @@ class LineBotHandler:
                     req_start_min = _to_minutes(requested_start)
                     req_end_min = _to_minutes(requested_end)
 
+                    # 移動時間指定がある場合は、元の空き枠が
+                    # (requested_start - travel) 〜 (requested_end + travel) を
+                    # 内包しているかで判定する
+                    slots_for_strict_check = frame.get('free_slots', [])
+                    if travel_time_minutes and travel_time_minutes > 0:
+                        req_start_min -= travel_time_minutes
+                        req_end_min += travel_time_minutes
+                        slots_for_strict_check = frame.get('raw_free_slots', frame.get('free_slots', []))
+
                     # 完全一致ではなく「内包判定」:
                     # 空き枠が requested_start〜requested_end を含んでいればOK
                     full_range_available = any(
                         _to_minutes(slot.get('start')) <= req_start_min and
                         _to_minutes(slot.get('end')) >= req_end_min
-                        for slot in frame.get('free_slots', [])
+                        for slot in slots_for_strict_check
                         if slot.get('start') and slot.get('end')
                     )
                     if full_range_available:
