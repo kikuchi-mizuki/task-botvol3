@@ -39,6 +39,8 @@ class AIService:
 
 ユーザーのメッセージからスケジュールに関する意図を理解し、適切なJSON形式で返してください。
 
+**最重要**: ユーザーが「X時〜Y時が空いている」と言った場合、その時間帯が**丸々空いている**必要があります。必ずrequired_duration_minutesに(Y-X)の分数を設定してください。
+
 ## タスクタイプの判定
 
 ユーザーの意図を理解して、以下のいずれかを選択：
@@ -95,7 +97,9 @@ class AIService:
 }}
 \`\`\`
 
-（省略可能なフィールド: travel_time_minutes, location, required_duration_minutes, time/end_time）
+**重要**:
+- 「X時〜Y時が空いている」「X時間の打ち合わせ」等、空き時間の長さが分かる表現の場合、**required_duration_minutesは必須**
+- 省略可能なフィールド: travel_time_minutes（移動時間がない場合）, location（場所指定がない場合）
 
 ## 例
 
