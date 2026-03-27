@@ -56,7 +56,8 @@ class AIService:
 ### その他のフィールド
 - **required_duration_minutes**: **連続して空いている必要がある時間**（分）
   - ユーザーが「X時間の打ち合わせ」と言った場合 → X×60分
-  - ユーザーが「X時〜Y時が空いている」と言った場合 → (Y-X)の分数
+  - **重要**: ユーザーが「X時〜Y時が空いている」と言った場合 → (Y-X)の分数を**必ず設定**
+    - 例: 「9:00〜18:00が空いている」→ 9時間 = 540分
   - 移動時間がある場合は往復分も含める
 
 - **travel_time_minutes**: 移動時間（片道、分）
@@ -71,7 +72,9 @@ class AIService:
    - required_duration_minutes: 「これだけ連続で空いている必要がある」（条件）
 
 2. **ユーザーの意図を読み取る**
-   - 「9:00〜18:00が空いている日」→ 9時間まるごと空いている必要がある
+   - **「X時〜Y時が空いている」= その時間帯が丸々空いている必要がある**
+     - 「9:00〜18:00が空いている日」→ 9時間まるごと空き（required_duration_minutes: 540）
+     - time/end_timeだけでなく、required_duration_minutesも必ず設定
    - 「午後に2時間打ち合わせ」→ 午後（12:00〜18:00）の中で2時間連続の空き
    - 「3月で3時間」→ 3月の各日で3時間連続の空き（日数×時間ではない）
 
@@ -96,19 +99,28 @@ class AIService:
 
 ## 例
 
-「3月で2時間打ち合わせできる日」
-→ 3月の各日で2時間連続の空きを探す
-→ required_duration_minutes: 120
+入力: 「4/15までの9:00〜18:00が空いている日程」
+解釈: 9:00〜18:00がまるごと空いている日を探す = 9時間(540分)連続の空きが必要
+出力:
+\`\`\`json
+{{
+  "task_type": "availability_check",
+  "dates": [
+    {{"date": "2026-03-28", "time": "09:00", "end_time": "18:00"}},
+    {{"date": "2026-03-29", "time": "09:00", "end_time": "18:00"}},
+    ...4/15まで
+  ],
+  "required_duration_minutes": 540
+}}
+\`\`\`
 
-「4/15までの9:00〜18:00が空いている日程」
-→ 9:00〜18:00がまるごと空いている日を探す
-→ time: 09:00, end_time: 18:00, required_duration_minutes: 540
+入力: 「3月で2時間打ち合わせできる日」
+出力: {{"task_type": "availability_check", "dates": [...], "required_duration_minutes": 120}}
 
-「明日の午後に1時間打ち合わせ 移動30分」
-→ 午後（12:00〜18:00）で1.5時間連続の空きを探す
-→ time: 12:00, end_time: 18:00, required_duration_minutes: 120, travel_time_minutes: 30
+入力: 「明日の午後に1時間打ち合わせ 移動30分」
+出力: {{"task_type": "availability_check", "dates": [{{"date": "2026-03-28", "time": "12:00", "end_time": "18:00"}}], "required_duration_minutes": 120, "travel_time_minutes": 30}}
 
-JSON形式のみで返答。説明不要。"""
+**重要**: JSON形式のみで返答。説明不要。"""
 
             # メッセージ構築（会話履歴を含める）
             messages = [{"role": "system", "content": system_prompt}]
