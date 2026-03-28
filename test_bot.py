@@ -177,6 +177,22 @@ def test_find_free_slots_for_day():
         {'start': '20:30', 'end': '22:00'}
     ], '空き枠分割ロジックにバグがあります'
 
+def test_find_free_slots_ignores_all_day():
+    """終日予定（場所メモ等）は空き計算でブロックしない"""
+    service = GoogleCalendarService()
+    jst = pytz.timezone('Asia/Tokyo')
+    events = [
+        {'title': '大阪', 'start': '2025-07-10', 'end': '2025-07-11', 'all_day': True},
+        {'title': 'MTG', 'start': '2025-07-10T20:00:00+09:00', 'end': '2025-07-10T20:30:00+09:00'},
+    ]
+    start_dt = jst.localize(datetime.strptime('2025-07-10 18:00', '%Y-%m-%d %H:%M'))
+    end_dt = jst.localize(datetime.strptime('2025-07-10 22:00', '%Y-%m-%d %H:%M'))
+    free_slots = service.find_free_slots_for_day(start_dt, end_dt, events)
+    assert free_slots == [
+        {'start': '18:00', 'end': '20:00'},
+        {'start': '20:30', 'end': '22:00'}
+    ], '終日予定があると誤って一日が埋まるとバグ'
+
 def test_full_flow():
     ai = AIService()
     from calendar_service import GoogleCalendarService
@@ -236,5 +252,7 @@ def main():
 if __name__ == "__main__":
     test_find_free_slots_for_day()
     print('find_free_slots_for_dayテスト成功')
+    test_find_free_slots_ignores_all_day()
+    print('find_free_slots_ignores_all_dayテスト成功')
     test_full_flow()
     print('full_flowテスト成功') 

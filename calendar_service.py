@@ -175,6 +175,8 @@ class GoogleCalendarService:
                         if not isinstance(event, dict):
                             logger.warning(f"[WARN] add_event: eventがdict型でないためスキップ: {event}")
                             continue
+                        if event.get('all_day') or 'T' not in str(event.get('start', '')):
+                            continue
                         conflicting_events.append({
                             'title': event.get('title', '予定なし'),
                             'start': event['start'].get('dateTime', event['start'].get('date')) if isinstance(event['start'], dict) else event['start'],
@@ -420,11 +422,15 @@ class GoogleCalendarService:
                 start = event['start'].get('dateTime', event['start'].get('date'))
                 end = event['end'].get('dateTime', event['end'].get('date'))
                 title = event.get('summary', 'タイトルなし')
+                # Google公式: 終日は start に date のみ（dateTime なし）。場所メモ用の終日は空き・重複に含めない
+                st_raw = event.get('start') or {}
+                all_day = isinstance(st_raw, dict) and bool(st_raw.get('date')) and not st_raw.get('dateTime')
 
                 event_data = {
                     'title': title,
                     'start': start,
-                    'end': end
+                    'end': end,
+                    'all_day': all_day,
                 }
                 event_list.append(event_data)
 
@@ -456,31 +462,23 @@ class GoogleCalendarService:
             busy_times = []
 
             for event in events:
+                if event.get('all_day'):
+                    continue
                 start = event['start'] if isinstance(event['start'], str) else event['start'].get('dateTime', event['start'].get('date'))
                 end = event['end'] if isinstance(event['end'], str) else event['end'].get('dateTime', event['end'].get('date'))
+                if not start or 'T' not in str(start):
+                    # 終日（日付のみ）や時刻なしは空き計算に含めない（場所ラベル等）
+                    continue
 
-                if 'T' in start:  # dateTime形式
-                    start_ev = datetime.fromisoformat(start.replace('Z', '+00:00'))
-                    end_ev = datetime.fromisoformat(end.replace('Z', '+00:00'))
+                start_ev = datetime.fromisoformat(str(start).replace('Z', '+00:00'))
+                end_ev = datetime.fromisoformat(str(end).replace('Z', '+00:00'))
 
-                    # 枠外の予定は除外
-                    if end_ev <= start_dt or start_ev >= end_dt:
-                        continue
+                if end_ev <= start_dt or start_ev >= end_dt:
+                    continue
 
-                    busy_start = max(start_ev, start_dt)
-                    busy_end = min(end_ev, end_dt)
-                    busy_times.append((busy_start, busy_end))
-
-                else:  # date型（終日予定）
-                    allday_start = jst.localize(datetime.combine(datetime.strptime(start, "%Y-%m-%d"), datetime.min.time()))
-                    allday_end = allday_start + timedelta(days=1)
-
-                    if allday_end <= start_dt or allday_start >= end_dt:
-                        continue
-
-                    busy_start = max(allday_start, start_dt)
-                    busy_end = min(allday_end, end_dt)
-                    busy_times.append((busy_start, busy_end))
+                busy_start = max(start_ev, start_dt)
+                busy_end = min(end_ev, end_dt)
+                busy_times.append((busy_start, busy_end))
 
             # 空き時間を計算
             free_slots = []

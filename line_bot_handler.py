@@ -667,6 +667,8 @@ class LineBotHandler:
                         # 既存予定との重複をチェック
                         has_conflict = False
                         for existing in existing_events:
+                            if existing.get('all_day') or 'T' not in str(existing.get('start', '')):
+                                continue
                             existing_start = parser.parse(existing.get('start', ''))
                             existing_end = parser.parse(existing.get('end', ''))
                             if existing_start.tzinfo is None:
@@ -1506,8 +1508,11 @@ class LineBotHandler:
                         print(f"[DEBUG] 日付{i+1}の予定取得（メモリから）")
                         events = events_by_date.get(date_str, [])
 
-                        # 終日予定を除外（空き時間計算に含めない）
-                        events = [e for e in events if 'T' in e.get('start', '')]
+                        # 終日予定を除外（場所メモ等・空き時間計算に含めない）
+                        events = [
+                            e for e in events
+                            if not e.get('all_day') and 'T' in e.get('start', '')
+                        ]
                         print(f"[DEBUG] 日付{i+1}の取得予定（終日除外後）: {events}")
                         
                         # 8:00〜22:00の間で空き時間を返す
