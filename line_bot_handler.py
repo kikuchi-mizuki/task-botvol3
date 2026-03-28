@@ -657,14 +657,26 @@ class LineBotHandler:
 
                         if event_start.tzinfo is None:
                             event_start = self.jst.localize(event_start)
+                        else:
+                            event_start = event_start.astimezone(self.jst)
                         if event_end.tzinfo is None:
                             event_end = self.jst.localize(event_end)
+                        else:
+                            event_end = event_end.astimezone(self.jst)
 
                         # 既存予定との重複をチェック
                         has_conflict = False
                         for existing in existing_events:
                             existing_start = parser.parse(existing.get('start', ''))
                             existing_end = parser.parse(existing.get('end', ''))
+                            if existing_start.tzinfo is None:
+                                existing_start = self.jst.localize(existing_start)
+                            else:
+                                existing_start = existing_start.astimezone(self.jst)
+                            if existing_end.tzinfo is None:
+                                existing_end = self.jst.localize(existing_end)
+                            else:
+                                existing_end = existing_end.astimezone(self.jst)
 
                             # 重複判定：新予定の開始が既存の終了より前 AND 新予定の終了が既存の開始より後
                             if event_start < existing_end and event_end > existing_start:
