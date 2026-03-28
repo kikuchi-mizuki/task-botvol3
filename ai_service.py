@@ -63,6 +63,10 @@ class AIService:
 あなた: {{"task_type": "availability_check", "dates": [{{"date": "2026-03-28", "time": "12:00", "end_time": "18:00"}}], "required_duration_minutes": 120, "travel_time_minutes": 30}}
 ↑ 1時間(60分) + 移動往復(60分) = 120分、移動片道30分
 
+ユーザー: 「4/6 15:00 なみさん」
+あなた: {{"task_type": "add_event", "dates": [{{"date": "2026-04-06", "time": "15:00", "end_time": "16:00", "title": "なみさん"}}]}}
+↑ 月/日と時刻と相手・件名。終了がなければ1時間後。必ずYYYY-MM-DD・time・end_time・titleを入れる
+
 ## ルール
 
 1. **task_type**:
@@ -287,11 +291,78 @@ JSON形式のみで返答。説明不要。"""
                 print(f"[WARNING] dates[{i}]が辞書でないためスキップ: タイプ={type(d)}, 値={d}")
 
         if not valid_dates:
-            print(f"[DEBUG] 有効なdatesエントリが存在しない")
-            return parsed
+            if parsed.get('task_type') != 'add_event':
+                print(f"[DEBUG] 有効なdatesエントリが存在しない")
+                return parsed
+            # add_event で AI が dates を空にした場合のフォールバック（後続の1行パターンで埋める）
+            print(f"[DEBUG] add_eventかつdates空: 1行パターン補完を試みます")
 
         # 有効な辞書のみを使用
         parsed['dates'] = valid_dates
+
+        # add_event: 「M/D HH:MM [タイトル]」1行（例: 4/6 15:00 なみさん）を必ず解釈できるようにする
+        if parsed.get('task_type') == 'add_event':
+            m_one = re.match(
+                r'^\s*(\d{1,2})/(\d{1,2})[\s　]+(\d{1,2}):(\d{2})(?:[\s　]+(.+?))?\s*$',
+                original_text.strip(),
+                re.DOTALL,
+            )
+            if m_one:
+                month, day, hour_s, minute_s, title_tail = m_one.groups()
+                month_i, day_i = int(month), int(day)
+                hour_i, minute_i = int(hour_s), int(minute_s)
+                title_tail = (title_tail or '').strip()
+                try:
+                    cand = datetime(now.year, month_i, day_i)
+                    if cand.date() < now.date():
+                        cand = datetime(now.year + 1, month_i, day_i)
+                except ValueError:
+                    cand = None
+                if cand:
+                    date_str = cand.strftime('%Y-%m-%d')
+                    time_str = f"{hour_i:02d}:{minute_i:02d}"
+                    end_dt = cand.replace(hour=hour_i, minute=minute_i) + timedelta(hours=1)
+                    end_str = end_dt.strftime('%H:%M')
+                    entry = {
+                        'date': date_str,
+                        'time': time_str,
+                        'end_time': end_str,
+                        'title': title_tail or '予定',
+                        'description': '',
+                    }
+                    if not valid_dates:
+                        valid_dates = [entry]
+                        parsed['dates'] = valid_dates
+                        print(f"[DEBUG] add_event 1行パターンでdatesを新規作成: {entry}")
+                    else:
+                        merged = False
+                        for d in valid_dates:
+                            if isinstance(d, dict) and not d.get('date'):
+                                d.setdefault('time', time_str)
+                                d.setdefault('end_time', end_str)
+                                d['date'] = date_str
+                                if title_tail and (not d.get('title') or d.get('title') in ('', '予定')):
+                                    d['title'] = title_tail
+                                merged = True
+                                print(f"[DEBUG] add_event 1行パターンで欠損dateを補完: {d}")
+                                break
+                        if not merged:
+                            dup = any(
+                                isinstance(d, dict)
+                                and d.get('date') == date_str
+                                and d.get('time') == time_str
+                                for d in valid_dates
+                            )
+                            if not dup:
+                                valid_dates.append(entry)
+                                print(f"[DEBUG] add_event 1行パターンでエントリ追加: {entry}")
+                        parsed['dates'] = valid_dates
+            elif not valid_dates:
+                print(f"[DEBUG] 有効なdatesエントリが存在しない（1行パターンも不一致）")
+                return parsed
+        elif not valid_dates:
+            print(f"[DEBUG] 有効なdatesエントリが存在しない")
+            return parsed
         allday_dates = set()
         new_dates = []
 
