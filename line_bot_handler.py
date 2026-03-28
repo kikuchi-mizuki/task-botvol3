@@ -1298,6 +1298,19 @@ class LineBotHandler:
                 print(f"[DEBUG] dates_infoが空")
                 return TextSendMessage(text="日付を正しく認識できませんでした。\n\n例: 「明日7/7 15:00〜15:30の空き時間を教えて」")
 
+            def _merge_hhmm_to_minutes(hhmm):
+                if not hhmm:
+                    return 0
+                s = str(hhmm).replace('：', ':').strip()
+                parts = s.split(':')
+                h = int(parts[0])
+                m = int(parts[1]) if len(parts) > 1 else 0
+                return h * 60 + m
+
+            def _merge_minutes_to_hhmm(total_minutes):
+                total_minutes = max(0, min(24 * 60 - 1, total_minutes))
+                return f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
+
             # 同じ日付のエントリをマージ（1日1エントリにする）
             print(f"[DEBUG] dates_info（マージ前）: {len(dates_info)}件")
             merged_dates = {}
@@ -1322,9 +1335,13 @@ class LineBotHandler:
                     current_start = date_info.get('time', '08:00')
                     current_end = date_info.get('end_time', '22:00')
 
-                    # 開始時刻は早い方、終了時刻は遅い方を採用
-                    existing['time'] = min(existing['time'], current_start)
-                    existing['end_time'] = max(existing['end_time'], current_end)
+                    # 文字列の辞書順 min/max は 9:00 と 10:00 で壊れるため分に直して比較
+                    es = _merge_hhmm_to_minutes(existing['time'])
+                    ee = _merge_hhmm_to_minutes(existing['end_time'])
+                    cs = _merge_hhmm_to_minutes(current_start)
+                    ce = _merge_hhmm_to_minutes(current_end)
+                    existing['time'] = _merge_minutes_to_hhmm(min(es, cs))
+                    existing['end_time'] = _merge_minutes_to_hhmm(max(ee, ce))
 
             dates_info = list(merged_dates.values())
             print(f"[DEBUG] dates_info（マージ後）: {len(dates_info)}件")
@@ -1606,8 +1623,28 @@ class LineBotHandler:
             
             print(f"[DEBUG] 全日付処理完了、free_slots_by_frame: {free_slots_by_frame}")
 
+            def _explicit_range_mode_for_dates(info):
+                """全日が同じ非デフォルト帯（08:00〜22:00以外の1種類）だけなら厳密モード"""
+                if not info:
+                    return False
+                date_ranges = {
+                    (d.get('time'), d.get('end_time'))
+                    for d in info
+                    if isinstance(d, dict) and d.get('time') and d.get('end_time')
+                }
+                non_default_ranges = {
+                    (start, end) for start, end in date_ranges
+                    if not (start == '08:00' and end == '22:00')
+                }
+                return len(non_default_ranges) == 1
+
+            explicit_range_mode = _explicit_range_mode_for_dates(dates_info)
+            print(f"[DEBUG] explicit_range_mode: {explicit_range_mode}")
+
             # required_duration_minutesが指定されている場合、フィルタリング
-            if required_duration_minutes and required_duration_minutes > 0:
+            # 厳密モード（明示時間帯が丸ごと空いているか）では、移動調整後の表示用スロットは
+            # 元帯より短くなるため、ここで required_duration を掛けると誤って全日除外される
+            if required_duration_minutes and required_duration_minutes > 0 and not explicit_range_mode:
                 print(f"[DEBUG] 空き時間をフィルタリング: required_duration_minutes={required_duration_minutes}")
                 filtered_frames = []
                 for frame in free_slots_by_frame:
@@ -1638,31 +1675,23 @@ class LineBotHandler:
 
                 free_slots_by_frame = filtered_frames
                 print(f"[DEBUG] フィルタリング後: {len(free_slots_by_frame)}日分")
+            elif required_duration_minutes and required_duration_minutes > 0 and explicit_range_mode:
+                print(
+                    f"[DEBUG] explicit_range_modeのため required_duration_minutes={required_duration_minutes} のフィルタをスキップ"
+                )
 
             # 明示的な時間帯指定（例: 09:00〜18:00）がある場合は
             # required_duration_minutesの有無に関係なく
             # 「その時間帯を内包して空いている日」のみ返す
-            explicit_range_mode = False
-            if dates_info:
-                date_ranges = {
-                    (d.get('time'), d.get('end_time'))
-                    for d in dates_info
-                    if isinstance(d, dict) and d.get('time') and d.get('end_time')
-                }
-                # 08:00〜22:00 はデフォルト範囲なので除外して判定
-                non_default_ranges = {
-                    (start, end) for start, end in date_ranges
-                    if not (start == '08:00' and end == '22:00')
-                }
-                explicit_range_mode = len(non_default_ranges) == 1
-                print(f"[DEBUG] explicit_range_mode: {explicit_range_mode}, non_default_ranges={non_default_ranges}")
-
             if explicit_range_mode:
                 strict_frames = []
 
                 def _availability_to_minutes(hhmm):
-                    h, m = hhmm.split(':')
-                    return int(h) * 60 + int(m)
+                    s = str(hhmm).replace('：', ':').strip()
+                    parts = s.split(':')
+                    h = int(parts[0])
+                    m = int(parts[1]) if len(parts) > 1 else 0
+                    return h * 60 + m
 
                 for frame in free_slots_by_frame:
                     requested_start = frame.get('start_time')
@@ -1716,7 +1745,27 @@ class LineBotHandler:
                         response_lines.append(f"・{dt.month}/{dt.day}（{weekday}）")
                     response_text = "\n".join(response_lines)
                 else:
-                    response_text = "✅指定時間帯（開始〜終了）が丸ごと空いている日程はありませんでした。"
+                    ref = free_slots_by_frame[0] if free_slots_by_frame else {}
+                    hs = ref.get('start_time') or (dates_info[0].get('time') if dates_info else None)
+                    he = ref.get('end_time') or (dates_info[0].get('end_time') if dates_info else None)
+                    if hs and he and travel_time_minutes and travel_time_minutes > 0:
+                        hs_m = _availability_to_minutes(hs) - travel_time_minutes
+                        he_m = _availability_to_minutes(he) + travel_time_minutes
+                        hs_m = max(0, hs_m)
+                        he_m = min(24 * 60 - 1, he_m)
+                        eff_s = f"{hs_m // 60:02d}:{hs_m % 60:02d}"
+                        eff_e = f"{he_m // 60:02d}:{he_m % 60:02d}"
+                        response_text = (
+                            f"✅指定時間帯（{hs}〜{he}）が、"
+                            f"移動{travel_time_minutes}分前後込みで必要な連続空き（実質{eff_s}〜{eff_e}）"
+                            f"を満たす日程はありませんでした。"
+                        )
+                    elif hs and he:
+                        response_text = (
+                            f"✅指定時間帯（{hs}〜{he}）が丸ごと空いている日程はありませんでした。"
+                        )
+                    else:
+                        response_text = "✅指定時間帯（開始〜終了）が丸ごと空いている日程はありませんでした。"
 
                 print(f"[DEBUG] strict availability response生成完了: {response_text}")
                 return TextSendMessage(text=response_text)

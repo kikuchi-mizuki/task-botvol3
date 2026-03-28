@@ -150,8 +150,21 @@ JSON形式のみで返答。説明不要。"""
                 parsed['dates'] = [{'date': date_value}]
                 del parsed['date']  # 重複を避けるため削除
 
+            # 「10:00〜17:00のように空いている」= 検索枠指定。required_duration は誤判定の元なので除去
+            if parsed.get('task_type') == 'availability_check':
+                has_explicit_slot_range = bool(
+                    re.search(
+                        r'\d{1,2}[:時]\d{0,2}\s*[〜~\-]\s*\d{1,2}[:時]\d{0,2}',
+                        text,
+                    )
+                )
+                if has_explicit_slot_range and parsed.get('required_duration_minutes') is not None:
+                    old = parsed.pop('required_duration_minutes')
+                    logger.info(
+                        f"[DEBUG] 明示時間帯の空き確認のため required_duration_minutes を削除（旧値 {old} 分）"
+                    )
+
             # 移動時間の処理（フォールバック） - すべてのタスクタイプで適用
-            import re
             travel_time_match = re.search(r'移動時間[はわ]?(\d+)分', text) or re.search(r'移動時間[はわ]?(\d+)時間', text)
             if travel_time_match:
                 # マッチしたテキストをログに記録
