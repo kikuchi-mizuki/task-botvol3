@@ -244,6 +244,7 @@ JSON形式のみで返答。説明不要。"""
                 # エラーが発生しても、AIの解析結果をそのまま返す
                 logger.warning(f"[WARNING] _supplement_timesエラーのため、AI解析結果をそのまま使用")
 
+            parsed = self._fill_availability_until_deadline(parsed, text)
             return parsed
 
         except Exception as e:
@@ -252,6 +253,52 @@ JSON形式のみで返答。説明不要。"""
             traceback.print_exc()
             return {"error": "イベント情報を正しく認識できませんでした。\n\n・日時を打つと空き時間を返します\n・予定を打つとカレンダーに追加します\n\n例：\n『明日の午前9時から会議を追加して』\n『来週月曜日の14時から打ち合わせ』"}
     
+    def _fill_availability_until_deadline(self, parsed, original_text):
+        """「4/15まで」のように締切日付がある空き確認で、今日〜締切の全日を揃える（AIの日付漏れ対策）"""
+        if parsed.get('task_type') != 'availability_check':
+            return parsed
+        dates = parsed.get('dates')
+        if not dates or not isinstance(dates, list):
+            return parsed
+        m = re.search(r'(\d{1,2})/(\d{1,2})\s*まで', original_text)
+        if not m:
+            return parsed
+        jst = pytz.timezone('Asia/Tokyo')
+        today = datetime.now(jst).date()
+        end_m, end_d = int(m.group(1)), int(m.group(2))
+        y = today.year
+        try:
+            deadline = datetime(y, end_m, end_d).date()
+            if deadline < today:
+                deadline = datetime(y + 1, end_m, end_d).date()
+        except ValueError:
+            return parsed
+        sample = next(
+            (d for d in dates if isinstance(d, dict) and d.get('time') and d.get('end_time')),
+            None,
+        )
+        if not sample:
+            return parsed
+        st, et = sample['time'], sample['end_time']
+        by_date = {}
+        for d in dates:
+            if isinstance(d, dict) and d.get('date'):
+                by_date[d['date']] = dict(d)
+        cur = today
+        while cur <= deadline:
+            k = cur.strftime('%Y-%m-%d')
+            if k not in by_date:
+                by_date[k] = {'date': k, 'time': st, 'end_time': et}
+            cur += timedelta(days=1)
+        filled = sorted(
+            (e for e in by_date.values() if today.strftime('%Y-%m-%d') <= e['date'] <= deadline.strftime('%Y-%m-%d')),
+            key=lambda x: x['date'],
+        )
+        if len(filled) != len(dates):
+            logger.info(f"[DEBUG] 締切まで全日補完: {len(dates)}件 → {len(filled)}件（今日〜{deadline}）")
+        parsed['dates'] = filled
+        return parsed
+
     def _parse_ai_response(self, response):
         """AIの応答をパースします"""
         try:
