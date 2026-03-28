@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import json
 
-from calendar_service import GoogleCalendarService
+from calendar_service import GoogleCalendarService, _event_is_all_day_for_availability
 import pytz
 
 from ai_service import AIService
@@ -193,6 +193,41 @@ def test_find_free_slots_ignores_all_day():
         {'start': '20:30', 'end': '22:00'}
     ], '終日予定があると誤って一日が埋まるとバグ'
 
+def test_all_day_detection_timed_midnight_jst():
+    """API が終日を dateTime（JST 子夜〜翌子夜）で返す場合も終日とみなす"""
+    jst = pytz.timezone('Asia/Tokyo')
+    ev_osaka = {
+        'start': {'dateTime': '2026-04-06T15:00:00+00:00'},
+        'end': {'dateTime': '2026-04-07T15:00:00+00:00'},
+    }
+    assert _event_is_all_day_for_availability(ev_osaka, jst)
+    ev_mtg = {
+        'start': {'dateTime': '2026-04-07T10:00:00+09:00'},
+        'end': {'dateTime': '2026-04-07T11:00:00+09:00'},
+    }
+    assert not _event_is_all_day_for_availability(ev_mtg, jst)
+
+def test_find_free_slots_ignores_timed_midnight_all_day():
+    """dateTime 終日相当でも空き計算に含めない（all_day フラグ付き想定）"""
+    service = GoogleCalendarService()
+    jst = pytz.timezone('Asia/Tokyo')
+    events = [
+        {
+            'title': '大阪',
+            'start': '2025-07-09T15:00:00+00:00',
+            'end': '2025-07-10T15:00:00+00:00',
+            'all_day': True,
+        },
+        {'title': 'MTG', 'start': '2025-07-10T20:00:00+09:00', 'end': '2025-07-10T20:30:00+09:00'},
+    ]
+    start_dt = jst.localize(datetime.strptime('2025-07-10 18:00', '%Y-%m-%d %H:%M'))
+    end_dt = jst.localize(datetime.strptime('2025-07-10 22:00', '%Y-%m-%d %H:%M'))
+    free_slots = service.find_free_slots_for_day(start_dt, end_dt, events)
+    assert free_slots == [
+        {'start': '18:00', 'end': '20:00'},
+        {'start': '20:30', 'end': '22:00'},
+    ]
+
 def test_full_flow():
     ai = AIService()
     from calendar_service import GoogleCalendarService
@@ -254,5 +289,9 @@ if __name__ == "__main__":
     print('find_free_slots_for_dayテスト成功')
     test_find_free_slots_ignores_all_day()
     print('find_free_slots_ignores_all_dayテスト成功')
+    test_all_day_detection_timed_midnight_jst()
+    print('test_all_day_detection_timed_midnight_jst成功')
+    test_find_free_slots_ignores_timed_midnight_all_day()
+    print('test_find_free_slots_ignores_timed_midnight_all_day成功')
     test_full_flow()
     print('full_flowテスト成功') 

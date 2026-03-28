@@ -1376,17 +1376,16 @@ class LineBotHandler:
                     all_events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
                     print(f"[DEBUG] 取得した予定数: {len(all_events)}件")
 
-                    # 終日予定を日付ごとに分類
+                    # 終日予定を日付ごとに分類（date のみ / dateTime で 1 日ぶんの両方）
                     all_day_events_by_date = {}
                     for event in all_events:
+                        if not event.get('all_day'):
+                            continue
                         start = event.get('start', '')
-                        # 終日予定かチェック（'T'が含まれない）
-                        if 'T' not in start:
-                            # 日付部分を抽出（YYYY-MM-DD形式）
-                            date_part = start
-                            if date_part not in all_day_events_by_date:
-                                all_day_events_by_date[date_part] = []
-                            all_day_events_by_date[date_part].append(event)
+                        date_part = str(start).split('T')[0] if 'T' in str(start) else str(start)
+                        if date_part not in all_day_events_by_date:
+                            all_day_events_by_date[date_part] = []
+                        all_day_events_by_date[date_part].append(event)
 
                     print(f"[DEBUG] 終日予定がある日数: {len(all_day_events_by_date)}日")
 

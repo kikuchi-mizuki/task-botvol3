@@ -19,6 +19,48 @@ if not logger.hasHandlers():
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
+
+def _event_is_all_day_for_availability(api_event, tz):
+    """空き計算から除外する「終日」判定。
+
+    - 公式: start に date があり dateTime がない
+    - 実データ: 終日なのに dateTime で「JST 子夜〜翌日子夜」や同一日 23h+ として返ることがある
+    """
+    st = api_event.get("start") or {}
+    if not isinstance(st, dict):
+        return False
+    if st.get("date") and not st.get("dateTime"):
+        return True
+    sdt = st.get("dateTime")
+    edt = (api_event.get("end") or {}).get("dateTime")
+    if not sdt or not edt:
+        return False
+    try:
+        sv = parser.isoparse(sdt)
+        ev = parser.isoparse(edt)
+        if sv.tzinfo is None:
+            sv = pytz.UTC.localize(sv)
+        if ev.tzinfo is None:
+            ev = pytz.UTC.localize(ev)
+        sv_l = sv.astimezone(tz)
+        ev_l = ev.astimezone(tz)
+        delta = ev_l - sv_l
+        # 子夜開始で、終了が翌暦日の子夜（±2分の誤差）
+        if sv_l.hour == sv_l.minute == sv_l.second == 0 and ev_l.date() == sv_l.date() + timedelta(days=1):
+            if ev_l.hour == ev_l.minute == ev_l.second == 0 or abs(delta.total_seconds() - 86400) < 120:
+                return True
+        # 同一暦日・0時開始・23.5h以上（00:00〜23:59 系の終日表現）
+        if (
+            sv_l.date() == ev_l.date()
+            and sv_l.hour == sv_l.minute == sv_l.second == 0
+            and delta >= timedelta(hours=23, minutes=30)
+        ):
+            return True
+    except (ValueError, TypeError, OverflowError):
+        return False
+    return False
+
+
 class GoogleCalendarService:
     def __init__(self):
         self.SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -422,9 +464,8 @@ class GoogleCalendarService:
                 start = event['start'].get('dateTime', event['start'].get('date'))
                 end = event['end'].get('dateTime', event['end'].get('date'))
                 title = event.get('summary', 'タイトルなし')
-                # Google公式: 終日は start に date のみ（dateTime なし）。場所メモ用の終日は空き・重複に含めない
-                st_raw = event.get('start') or {}
-                all_day = isinstance(st_raw, dict) and bool(st_raw.get('date')) and not st_raw.get('dateTime')
+                # 終日は date のみのほか、dateTime で 1 日ぶんとして返る場合がある（空き計算から除外）
+                all_day = _event_is_all_day_for_availability(event, jst)
 
                 event_data = {
                     'title': title,
