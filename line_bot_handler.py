@@ -1654,16 +1654,17 @@ class LineBotHandler:
 
             if explicit_range_mode:
                 strict_frames = []
+
+                def _availability_to_minutes(hhmm):
+                    h, m = hhmm.split(':')
+                    return int(h) * 60 + int(m)
+
                 for frame in free_slots_by_frame:
                     requested_start = frame.get('start_time')
                     requested_end = frame.get('end_time')
 
-                    def _to_minutes(hhmm):
-                        h, m = hhmm.split(':')
-                        return int(h) * 60 + int(m)
-
-                    req_start_min = _to_minutes(requested_start)
-                    req_end_min = _to_minutes(requested_end)
+                    req_start_min = _availability_to_minutes(requested_start)
+                    req_end_min = _availability_to_minutes(requested_end)
 
                     # 移動時間指定がある場合は、元の空き枠が
                     # (requested_start - travel) 〜 (requested_end + travel) を
@@ -1677,8 +1678,8 @@ class LineBotHandler:
                     # 完全一致ではなく「内包判定」:
                     # 空き枠が requested_start〜requested_end を含んでいればOK
                     full_range_available = any(
-                        _to_minutes(slot.get('start')) <= req_start_min and
-                        _to_minutes(slot.get('end')) >= req_end_min
+                        _availability_to_minutes(slot.get('start')) <= req_start_min and
+                        _availability_to_minutes(slot.get('end')) >= req_end_min
                         for slot in slots_for_strict_check
                         if slot.get('start') and slot.get('end')
                     )
@@ -1689,7 +1690,21 @@ class LineBotHandler:
                 if strict_frames:
                     header_start = strict_frames[0].get('start_time')
                     header_end = strict_frames[0].get('end_time')
-                    response_lines = [f"✅{header_start}〜{header_end}で空いている日程です！", ""]
+                    # 内部判定は移動時間ありのとき前後を広げているが、見出しだけ10:00〜のままだと誤解されるため実質レンジも表示する
+                    if travel_time_minutes and travel_time_minutes > 0:
+                        hs_m = _availability_to_minutes(header_start) - travel_time_minutes
+                        he_m = _availability_to_minutes(header_end) + travel_time_minutes
+                        hs_m = max(0, hs_m)
+                        he_m = min(24 * 60 - 1, he_m)
+                        eff_s = f"{hs_m // 60:02d}:{hs_m % 60:02d}"
+                        eff_e = f"{he_m // 60:02d}:{he_m % 60:02d}"
+                        response_lines = [
+                            f"✅ご指定 {header_start}〜{header_end}",
+                            f"（移動{travel_time_minutes}分前後込み・実質{eff_s}〜{eff_e}の連続空きで判定）で空いている日程です！",
+                            "",
+                        ]
+                    else:
+                        response_lines = [f"✅{header_start}〜{header_end}で空いている日程です！", ""]
                     for frame in strict_frames:
                         dt = self.jst.localize(datetime.strptime(frame['date'], "%Y-%m-%d"))
                         weekday = "月火水木金土日"[dt.weekday()]
